@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import math  # noqa: E402
 
 from simcore import (DYNAMIC_PRESET, EMITTER_RANGE, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
-                     OPTIMAL_DISTANCE, SPECIATION_PRESET, STRATEGIES, Rules, World)
+                     OPEN_PRESET, OPTIMAL_DISTANCE, SPECIATION_PRESET, STRATEGIES, Rules,
+                     World)
 
 
 def clumping(world, organisms):
@@ -65,21 +66,29 @@ def parse_mix(text):
     return dict(zip(STRATEGIES, weights))
 
 
-ENVS = ("static", "dynamic", "speciation", "dynamic+speciation")
+PRESETS = {"static": {}, "dynamic": DYNAMIC_PRESET, "open": OPEN_PRESET,
+           "speciation": SPECIATION_PRESET}
+ENV_HELP = ("static (defaults), dynamic (seasons, drift, rocks), open (ambient "
+            "light + dispersal), speciation (marker kin + sex); join with '+', "
+            "e.g. dynamic+open")
 
 
 def base_rules(env):
-    """Rules for an --env name: static (defaults), dynamic, speciation, or
-    both joined with '+'."""
+    """Rules for an --env value: preset names joined with '+'."""
     values = {}
     for part in env.split("+"):
-        if part == "dynamic":
-            values.update(DYNAMIC_PRESET)
-        elif part == "speciation":
-            values.update(SPECIATION_PRESET)
-        elif part != "static":
-            raise ValueError("unknown env %r" % part)
+        if part not in PRESETS:
+            raise ValueError("unknown env %r (choose from %s)" % (part, ", ".join(PRESETS)))
+        values.update(PRESETS[part])
     return Rules(**values)
+
+
+def env_arg(text):
+    try:
+        base_rules(text)
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(str(err))
+    return text
 
 
 def parse_rules(pairs, base=None):
@@ -194,8 +203,7 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=3000)
     ap.add_argument("--mix", type=parse_mix, default=None)
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
-    ap.add_argument("--env", choices=ENVS, default="static",
-                    help="dynamic: seasons, drift, rocks; speciation: marker kin + sex")
+    ap.add_argument("--env", type=env_arg, default="static", help=ENV_HELP)
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)

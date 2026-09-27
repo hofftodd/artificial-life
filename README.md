@@ -32,8 +32,9 @@ A setup dialog opens first. In it you choose:
 - how many organisms to start with
 - the mix of absorbers, parasites and predators
 - the world size
-- the number of rocks, and whether seasons and emitter drift are on (on by
-  default in the GUI)
+- the number of rocks, whether seasons and emitter drift are on, and whether
+  the world is "open" (weak light everywhere plus long-range dispersal, so
+  life spreads beyond the emitters). Both are on by default in the GUI.
 
 Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 
@@ -58,12 +59,18 @@ Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 | Red strike and burst | a predator kill |
 | Fading ring | a death: red ✕ eaten, grey starved, white old age |
 | Red / green rings round an emitter | lethal zone / optimal distance |
+| Small brown dots | carcasses (only with `carcass_fraction` set) |
 | Dimmer patches of light | grazed cells: harvesting drains a cell's light, which slowly regrows, so absorbers keep foraging |
 | Grey discs | rocks: they shade the light behind them and hide organisms near their edge from hunters |
 | Emitter label "output 70%" | the emitter's current seasonal output |
 
-The top-left HUD shows each strategy's count, mean energy, mean offspring,
-and the best offspring count.
+The world view shows only the world. A side pane on the right holds:
+
+- the stats: each strategy's count, mean energy, mean offspring and best
+  offspring count
+- the inspector, when you click an organism (click empty space to close it)
+- otherwise the legend (H hides it)
+- the key help
 
 To exit automatically after N frames (this skips the dialog):
 
@@ -92,7 +99,7 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 158 fast tests (unit, integration, functional, and a headless
+There are 172 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
@@ -133,6 +140,9 @@ open runs/seed42.html
   end, and `--resume runs/s42.ckpt --ticks 5000 --out runs/s42b.html` continues
   it exactly.
 - **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
+- **Open world:** `--env open` adds weak ambient light everywhere and a
+  dispersal gene, so colonies can live between the emitters. Presets combine
+  with `+`, e.g. `--env dynamic+open+speciation`.
 - **Speciation:** `--env speciation` switches kin to a drifting marker gene
   and adds sexual reproduction with assortative mating. The report then shows
   a marker heatmap and a species count. Combine it with a changing world using

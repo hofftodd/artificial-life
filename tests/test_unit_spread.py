@@ -147,6 +147,20 @@ class TestCarcasses(unittest.TestCase):
             total = new
 
 
+class TestOpenWorldPreset(unittest.TestCase):
+    def test_preset_and_env_names(self):
+        from tools import soak
+        r = Rules.open_world()
+        self.assertGreater(r.ambient_light, 0)
+        self.assertGreater(r.dispersal_max, 0)
+        self.assertEqual(Rules().ambient_light, 0.0)
+        both = soak.base_rules("dynamic+open")
+        self.assertGreater(both.ambient_light, 0)
+        self.assertGreater(both.num_rocks, 0)
+        with self.assertRaises(ValueError):
+            soak.base_rules("open+swamp")
+
+
 class TestValidation(unittest.TestCase):
     def test_bad_values(self):
         for bad in (dict(ambient_light=-0.1), dict(dispersal_max=-1), dict(carcass_fraction=2),

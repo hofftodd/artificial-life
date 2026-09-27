@@ -19,7 +19,8 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from simcore import GROUP_RADIUS, STRATEGIES, World, species_clusters  # noqa: E402
-from tools.soak import ENVS, base_rules, parse_mix, parse_rules, ring_offset  # noqa: E402
+from tools.soak import (ENV_HELP, base_rules, emitter_distance, env_arg, parse_mix,  # noqa: E402
+                        parse_rules, ring_offset)
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_template.html")
 SPECTRUM_BINS = 20            # 1..100 in bins of 5
@@ -30,6 +31,7 @@ TRAITS = [
     ("mismatch", "Spectral mismatch to local light", None),
     ("clumping", "Relatives within 15px", None),
     ("ring_offset", "Distance from the optimal ring (px)", None),
+    ("emitter_distance", "Distance to the nearest emitter (px)", None),
     ("absorption", "Absorption share", lambda o: o.genes.absorption),
     ("parasitism", "Parasitism share", lambda o: o.genes.parasitism),
     ("predation", "Predation share", lambda o: o.genes.predation),
@@ -111,6 +113,8 @@ class Sampler:
                 vals = relatives_nearby(w)
             elif key == "ring_offset":
                 vals = [ring_offset(w, o) for o in orgs]
+            elif key == "emitter_distance":
+                vals = [emitter_distance(w, o) for o in orgs]
             else:
                 vals = [get(o) for o in orgs]
             vals.sort()
@@ -212,8 +216,7 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=10000, help="ticks to run (after --resume)")
     ap.add_argument("--mix", type=parse_mix, default=None, help="absorber:parasite:predator")
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
-    ap.add_argument("--env", choices=ENVS, default="static",
-                    help="dynamic: seasons, drift, rocks; speciation: marker kin + sex")
+    ap.add_argument("--env", type=env_arg, default="static", help=ENV_HELP)
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)
     ap.add_argument("--emitters", type=int, default=3)

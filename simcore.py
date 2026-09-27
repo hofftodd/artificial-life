@@ -46,6 +46,9 @@ KIN_IMMUNITY = ("none", "non_predators", "all")
 DYNAMIC_PRESET = dict(pulse_period=1500, pulse_depth=0.3, spectrum_drift=0.05,
                       emitter_drift=0.1, num_rocks=8)
 SPECIATION_PRESET = dict(kin_by="marker", sex_rate=0.5, mate_tolerance=6.0)
+# ambient light makes the space between emitters habitable; dispersal lets
+# lineages spread into it (see DESIGN.md, Spreading out)
+OPEN_PRESET = dict(ambient_light=0.02, dispersal_max=150.0)
 
 # --- strategy trade-offs ---
 ABSORB_MAX = 2.0            # absorption_efficiency of a pure absorber
@@ -188,6 +191,14 @@ class Rules:
     rock_shade: float = ROCK_SHADE
     cover_range: float = COVER_RANGE
     hidden_detect: float = HIDDEN_DETECT
+
+    @classmethod
+    def open_world(cls, **overrides):
+        """Life beyond the emitter discs: ambient light everywhere plus
+        heritable long-range dispersal."""
+        values = dict(OPEN_PRESET)
+        values.update(overrides)
+        return cls(**values)
 
     @classmethod
     def speciation(cls, **overrides):

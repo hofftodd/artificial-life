@@ -178,6 +178,49 @@ absorbers, and bite 0.14 → 0.6–0.8 and perception 0.12 → 0.2–0.7 among
 predators. The report has an
 "Arms race" section plotting absorber defences against predator weapons.
 
+## Spreading out: the open world
+
+**Why:** a measurement (3 seeds, static and dynamic) found that 0% of
+organisms ever lived beyond `EMITTER_RANGE` (120px); every strategy stayed
+55–85px from an emitter. Light ends at 120px, and the three emitter discs
+cover only about 25% of a 900×600 world, so the rest held no energy.
+
+There are four mechanisms, all off in `Rules()`:
+
+| Rule | Mechanic |
+|---|---|
+| `ambient_light` | A weak, spectrum-neutral glow everywhere (`AMBIENT_MATCH` 0.6). It is harvested and grazed like emitter light and counts as light for foraging, so an organism in the open doesn't fall back to seeking an emitter. |
+| `dispersal_max` + `dispersal` gene | A child is born up to `12 + dispersal × dispersal_max` px from its parent. The gene starts at 0–0.3, with mutation σ 0.05. |
+| `tail_strength`, `tail_range` | Each emitter also casts a dim, wide cone that fades to zero at `tail_range`. |
+| `carcass_fraction`, `carcass_decay`, `scavenge_bite` | Old-age deaths, and whatever part of prey a predator doesn't eat, leave a decaying carcass. Anything with `eating_ability > 0.05` scavenges it, and predators without a victim seek carcasses. Total energy still never rises (a test counts carcass energy). |
+
+**`Rules.open_world()`** (`--env open`, and the GUI's "Open world" toggle,
+which is on by default there) sets `ambient_light=0.02` and
+`dispersal_max=150`.
+
+**Measurements** (6 seeds × 5000 ticks):
+
+| Config | Beyond 120px | Balance |
+|---|---|---|
+| baseline | 0% | target met |
+| ambient only | 1–12% | populations hit the 600 cap |
+| **ambient + dispersal** | **2–39%** (median distance 73–90px) | populations 160–386, all strategies alive; parasites 19% |
+| tails + dispersal | about 1% | harsh (one seed extinct) |
+| carcasses + dispersal | about 1% | overfeeds hunters |
+| all four | 1–42% | predators take over (25–32%) |
+
+- **12 seeds:** ambient + dispersal kept every strategy alive on all 12 seeds,
+  with 1–32% of organisms beyond the discs. But predators averaged 21%, which
+  misses the static target.
+- **Dynamic environment:** with `Rules.dynamic()`, it met the target.
+- **Tuning attempts:** lowering `steal_rate` let predators boom, because
+  parasites were holding them in check. A longer hunt cooldown didn't help.
+- **Conclusion:** the open world is opt-in, like the dynamic environment. It
+  is more alive but more volatile.
+- **What it looks like:** colonies settle in the open. Since ambient light
+  suits every spectrum, they evolve spectra unlike the emitter populations',
+  and predators follow them out.
+
 ## Speciation (opt-in)
 
 `Rules.speciation()` (and `--env speciation`, or `--env dynamic+speciation`)
@@ -293,6 +336,7 @@ Strategy decides:
 | cover_affinity | 0..0.5 | 0.08 | 0..1 | pull toward the nearest rock (cover from hunters, at the cost of shade) |
 | armor, bite, camouflage, perception | 0..0.3 | 0.05 | 0..1 | arms race pairs (see Arms race) |
 | marker | 1..100 | 1.5 | 1..100 | neutral tag for kin and mate choice (see Speciation) |
+| dispersal | 0..0.3 | 0.05 | 0..1 | how far children are born (× `dispersal_max`) |
 
 ## Families
 
@@ -372,6 +416,10 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `regrowth_rate` | 0.01 | fraction of the missing reserve regrown per tick |
 | `defense_per_kin` | 0.0 | partial group defence per relative (0 = off) |
 | `arms_race` | True | express armour/bite and camouflage/perception (see Arms race) |
+| `ambient_light` | 0.0 | spectrum-neutral light everywhere (open world uses 0.02) |
+| `dispersal_max` | 0.0 | extra birth distance at dispersal 1 (open world uses 150) |
+| `tail_strength`, `tail_range` | 0.0, 240 | dim wide emitter cone |
+| `carcass_fraction`, `carcass_decay`, `scavenge_bite` | 0.0, 0.01, 0.5 | carcasses and scavenging |
 | `kin_by` | `"family"` | kin = same founder, or `"marker"` = similar marker |
 | `sex_rate` | 0.0 | chance a birth is sexual (needs a nearby compatible mate) |
 | `mate_tolerance` | 6.0 | largest marker difference a mate may have |
@@ -424,14 +472,15 @@ total energy never rises and the population goes extinct; a test checks this.
 - absorber / parasite / predator mix (weights shown as percentages with a
   stacked bar; all zero means fully random genomes)
 - world width and height, clamped to the desktop size
-- rocks, and "Seasons & drift" on/off (`Rules.dynamic()` when on)
+- rocks, "Seasons & drift" on/off (`Rules.dynamic()` values), and "Open world"
+  on/off (`Rules.open_world()` values). Both are on by default in the GUI.
 
 Rocks are drawn as grey discs. Each emitter's halo dims with its seasonal
 output, and its label shows the output % and current spectrum.
 
 Use the arrows or the +/- buttons to adjust, and Enter or Start to begin. Esc
 returns to the running world, or quits if there isn't one yet. The window is
-resized to the world size. `max_population` scales with area (never below
+the world plus a 300px side pane (`window_size`). `max_population` scales with area (never below
 `MAX_POPULATION`, 600).
 
 **Run:** step, draw, 60fps.
@@ -456,10 +505,19 @@ Event effects fade over a few frames:
 
 Effects freeze while the simulation is paused.
 
-The HUD shows per-strategy count, mean energy, mean offspring, and the best
-offspring count. Click an organism to open the inspector: energy and age bars,
-strategy budget bar, expressed abilities, social genes, and family size, with
-relatives outlined. H toggles the legend.
+**The side pane** (`draw_pane`, right of the world) keeps the world view free
+of overlays. Only emitter labels and the selected organism's ring and kin
+outlines are drawn in the world. From the top, the pane shows:
+
+- the HUD: generation, population and tick, running/stopped, and
+  per-strategy count, mean energy and offspring
+- then either the inspector for the clicked organism (energy and age bars,
+  strategy budget, abilities, social, arms-race, marker and dispersal genes)
+  or the legend (H toggles it)
+- the key help at the bottom
+
+Clicks inside the pane don't select anything. Clicking empty world space
+closes the inspector.
 
 `AIL_AUTOQUIT_FRAMES=N` runs without the dialog and exits after N frames.
 
@@ -514,6 +572,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_spread.py` | ambient harvest, tails, dispersal distances, carcasses (leaving, decay, scavenging, seeking, energy conservation), open-world preset |
 | Unit | `test_unit_speciation.py` | marker kin, crossover, assortative mating, asexual fallback, lineage mate field, species clusters, presets |
 | Unit | `test_unit_arms.py` | kill chance vs bite − armour (statistical), camouflage and perception reach, costs, mutation bounds |
 | Unit | `test_unit_foraging.py` | grazing and regrowth, foraging choices and fallback, ring mode, partial defence statistics |

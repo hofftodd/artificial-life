@@ -347,7 +347,8 @@ Object.entries(DATA.traits).forEach(([k, v]) => lineChart(TR, {
   title: DATA.trait_labels[k],
   caption: {mismatch: "Lower means better matched to the emitter lighting each organism.",
             clumping: "How packed families are; group defence depends on this.",
-            ring_offset: "0 = parked on the optimal ring; foraging spreads organisms out."}[k] || null,
+            ring_offset: "0 = parked on the optimal ring; foraging spreads organisms out.",
+            emitter_distance: "Emitter light ends at 120px; beyond that, organisms live on ambient light (open world)."}[k] || null,
   series: [{name: "Mean", color: "--series-1", values: v.mean, band: [v.p10, v.p90]}],
 }));
 

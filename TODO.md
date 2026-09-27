@@ -81,6 +81,12 @@
 
 ## Evolution experiments
 
+- [x] Spreading out: ambient light, light tails, dispersal gene and carcasses
+  (all `Rules` fields); `Rules.open_world()` / `--env open` / GUI "Open world".
+- [ ] Balance the open world for the static target (predators about 21% on 12
+  seeds). Carcasses and tails currently overfeed hunters; consider a
+  scavenger strategy or a predator cost for open-ground hunting.
+- [x] UI: stats, legend and inspector in a side pane; the world view is clear.
 - [x] Arms race: armour vs bite and camouflage vs perception, each with
   costs, on by default (`Rules.arms_race`), with an "Arms race" report
   section.

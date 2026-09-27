@@ -60,6 +60,7 @@ DEFAULT_SETTINGS = {
     "emitters": simcore.NUM_EMITTERS,
     "rocks": simcore.Rules.dynamic().num_rocks,
     "dynamic": 1,
+    "open": 1,
     "organisms": simcore.START_POPULATION,
     "absorber": 80,
     "parasite": 10,
@@ -425,6 +426,7 @@ class SetupDialog:
             ("emitters", "Emitters", 0, 10, 1),
             ("rocks", "Rocks", 0, 40, 1),
             ("dynamic", "Seasons & drift", 0, 1, 1),
+            ("open", "Open world", 0, 1, 1),
             ("organisms", "Starting organisms", 0, 600, 10),
             ("absorber", "Absorbers", 0, 100, 5),
             ("parasite", "Parasites", 0, 100, 5),
@@ -504,7 +506,7 @@ class SetupDialog:
                 pygame.draw.rect(screen, (45, 45, 75), row)
             color = STRATEGY_COLORS.get(key, TEXT)
             value = str(self.values[key])
-            if key == "dynamic":
+            if key in ("dynamic", "open"):
                 value = "on" if self.values[key] else "off"
             if key in STRATEGIES:
                 value = "%d%%" % round(mix[key]) if mix else "-"
@@ -599,8 +601,7 @@ class SimulationApp:
             num_emitters=st["emitters"], start_population=st["organisms"],
             max_population=max(simcore.MAX_POPULATION, int(simcore.MAX_POPULATION * area)),
             strategy_mix=mix,
-            rules=(simcore.Rules.dynamic if st["dynamic"] else simcore.Rules)(
-                num_rocks=st["rocks"]))
+            rules=simcore.Rules(**world_rule_values(st)))
         self.effects.clear()
         self.selected = None
         self.paused = False
@@ -686,6 +687,17 @@ class SimulationApp:
             if max_frames is not None and frames >= max_frames:
                 break
         return frames
+
+
+def world_rule_values(settings):
+    """Rules fields for the setup dialog's environment toggles."""
+    values = {}
+    if settings.get("dynamic"):
+        values.update(simcore.DYNAMIC_PRESET)
+    if settings.get("open"):
+        values.update(simcore.OPEN_PRESET)
+    values["num_rocks"] = settings["rocks"]
+    return values
 
 
 def window_size(width, height):
