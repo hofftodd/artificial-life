@@ -68,7 +68,7 @@
   `simulator_visual.py` and `simulator_text.py`.
 - [ ] Add `requirements.txt` / `pyproject.toml` (pygame 2.6.1; Python 3.14
   tested).
-- [ ] Initialise git.
+- [x] Initialise git.
 - [ ] Remove `_fix_pygame_font()` once pygame ships a Python 3.14 fix.
 
 ## Tests

@@ -140,7 +140,7 @@ relative to their movement heading. They stop approaching within
 `KIN_SPACING` (10px), so clumps form without organisms stacking on each other.
 
 Clumping currently carries a cost for absorbers, because cell-mates split the
-light. It brings no benefit yet (see `todo.md`), so clumps only arise
+light. It brings no benefit yet (see `TODO.md`), so clumps only arise
 sometimes.
 
 ## Organism update
@@ -156,7 +156,8 @@ sometimes.
    - A kin pull is added to either heading.
    - Otherwise, it wanders randomly.
 4. **Steal:** if `stealing_ability > 0.05`, take
-   `energy × stealing × STEAL_RATE` from the first non-parasite within 12px.
+   `energy × stealing × STEAL_RATE` from the first non-parasite within 12px
+   that has more than 0.1 energy.
 5. **Eat:** if `eating_ability > 0.05`, with a 24-tick cooldown, kill the
    weakest organism within 12px with energy below
    `WEAK_PREY_ENERGY (7) × eating_ability`. Skip own children younger than
@@ -195,7 +196,8 @@ total energy never rises and the population goes extinct; a test checks this.
 
 Use the arrows or the +/- buttons to adjust, and Enter or Start to begin. Esc
 returns to the running world, or quits if there isn't one yet. The window is
-resized to the world size. `max_population` scales with area.
+resized to the world size. `max_population` scales with area (never below
+`MAX_POPULATION`, 600).
 
 **Run:** step, draw, 60fps.
 
@@ -231,7 +233,7 @@ relatives outlined. H toggles the legend.
 At about 330 organisms, a step takes roughly 35–55ms in CPython. About
 two-thirds of that is the shading ray-march: `RadiationField._count_blockers`
 plus the `SpatialGrid.query` calls it makes. The next largest cost is
-neighbour search. See `todo.md` for the optimisation plan.
+neighbour search. See `TODO.md` for the optimisation plan.
 
 ## Testing strategy
 

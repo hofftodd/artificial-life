@@ -93,9 +93,9 @@ they don't need a display.
 
 ## More
 
-- [design.md](design.md): how the model works (strategy budget, light
+- [DESIGN.md](DESIGN.md): how the model works (strategy budget, light
   competition, shading, genes, tick order, UI encoding).
-- [todo.md](todo.md): open questions and next steps, including performance
+- [TODO.md](TODO.md): open questions and next steps, including performance
   and GPU notes.
 
 `simulator_simple.py`, `simulator_visual.py` and `simulator_text.py` are
