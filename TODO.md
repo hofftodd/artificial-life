@@ -69,9 +69,14 @@
 
 ## Performance (see the GPU note below)
 
-- [ ] **Shading is about two-thirds of step time.** Rasterise absorbers into a
-  per-cell occupancy grid once per tick, then march beams over cells rather
-  than calling `grid.query` per sample. Expect about 10× faster.
+- [x] **Exact speedups (3–4×):** direct beam test for shading, lazy grid
+  iteration, and distance-before-predicate neighbour search.
+- [ ] **More generations per run.** Reproduction chance isn't the limit;
+  energy is. Organisms need > 7 energy to breed, which takes hundreds of
+  ticks. Doubling `REPRO_CHANCE` barely helps (21 → 25 generations in 10k
+  ticks). Halving lifespans gives about 40 but destabilises populations. Next:
+  re-tune the energy economy (light, costs, child cost) as `Rules` fields and
+  re-check with `tools/soak.py`.
 - [ ] **Vectorise with NumPy:**
   - the field and demand grids as arrays
   - organism positions and energies as structured arrays for neighbour search
@@ -87,6 +92,16 @@
   tested).
 - [x] Initialise git.
 - [ ] Remove `_fix_pygame_font()` once pygame ships a Python 3.14 fix.
+
+## Evolution experiments
+
+- [x] Lineage recording, checkpoints, and the `tools/evolve.py` HTML report.
+- [ ] Phylogeny view from the lineage file (tree or Muller by lineage, not just
+  family).
+- [ ] Drifting / pulsing emitters (Red Queen; also the route to boom/bust).
+- [ ] Heritable kin marker instead of permanent founder `family`; sexual
+  reproduction with assortative mating (speciation).
+- [ ] Energy-sharing gene to test Hamilton's rule.
 
 ## Tests
 

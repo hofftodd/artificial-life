@@ -87,8 +87,8 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 100 fast tests (unit, integration, functional, and a headless
-pygame GUI test), and they take about 35s. The GUI tests use SDL's dummy video
+There are 106 fast tests (unit, integration, functional, and a headless
+pygame GUI test), and they take about 16s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
 A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
@@ -104,6 +104,23 @@ To probe balance directly, or to try other rules, use the soak tool:
 python3 tools/soak.py --seeds 1 2 3 7 42 99 --ticks 3000
 python3 tools/soak.py --mix 8:1:1 --set hunt_cooldown=16 --set group_defense=3
 ```
+
+## Evolution reports
+
+Run a world headless and get an HTML report of how it evolved: strategies,
+generations, spectrum vs. emitters, family takeover and trait trends.
+
+```sh
+python3 tools/evolve.py --seed 42 --ticks 10000 --out runs/seed42.html
+open runs/seed42.html
+```
+
+- **Add a lineage file:** `--lineage runs/seed42.jsonl` also writes every birth
+  and death.
+- **Checkpoint and resume:** `--checkpoint runs/s42.ckpt` saves the world at the
+  end, and `--resume runs/s42.ckpt --ticks 5000 --out runs/s42b.html` continues
+  it exactly.
+- **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
 
 ## More
 

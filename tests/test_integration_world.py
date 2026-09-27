@@ -1,4 +1,6 @@
 import math
+import os
+import tempfile
 import unittest
 
 from simcore import (ENERGY_CAP, MAX_POPULATION, MOTION_COST, OPTIMAL_DISTANCE,
@@ -115,6 +117,56 @@ class TestNoEmitterStarvation(unittest.TestCase):
             self.assertLessEqual(new_total, total + 1e-9)
             total = new_total
         self.assertEqual(len(w.organisms), 0)
+
+
+
+class TestLineage(unittest.TestCase):
+    def test_off_by_default(self):
+        self.assertIsNone(World(300, 200, seed=1).lineage)
+
+    def test_records_founders_births_and_deaths(self):
+        w = World(900, 600, seed=5, record_lineage=True)
+        founders = {o.uid for o in w.organisms}
+        for _ in range(600):
+            w.step()
+        births = [r for r in w.lineage if r[0] == "birth"]
+        deaths = [r for r in w.lineage if r[0] == "death"]
+        self.assertEqual({r[2] for r in births if r[3] is None}, founders)
+        self.assertEqual(len(births) - len(founders), w.total_births)
+        self.assertEqual(len(deaths), sum(v for k, v in w.stats.items() if k[0] == "death"))
+        known = {r[2] for r in births}
+        for r in births:
+            if r[3] is not None:
+                self.assertIn(r[3], known)  # every parent was recorded first
+        alive = {r[2] for r in births} - {r[2] for r in deaths}
+        self.assertEqual(alive, {o.uid for o in w.organisms})
+
+
+class TestCheckpoint(unittest.TestCase):
+    def test_resume_is_exact(self):
+        w = World(900, 600, seed=9, record_lineage=True)
+        for _ in range(300):
+            w.step()
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "w.ckpt")
+            w.save(path)
+            for _ in range(300):
+                w.step()
+            expected = (snapshot(w), w.tick, len(w.lineage))
+            resumed = World.load(path)
+        for _ in range(300):
+            resumed.step()
+        self.assertEqual((snapshot(resumed), resumed.tick, len(resumed.lineage)), expected)
+
+    def test_new_uids_do_not_collide_after_load(self):
+        w = World(300, 200, seed=2)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "w.ckpt")
+            w.save(path)
+            loaded = World.load(path)
+        used = {o.uid for o in loaded.organisms}
+        fresh = make_organism(10, 10, make_rng())
+        self.assertNotIn(fresh.uid, used)
 
 
 if __name__ == "__main__":

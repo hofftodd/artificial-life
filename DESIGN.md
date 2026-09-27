@@ -15,6 +15,7 @@ against each other rather than maximising all of them.
 | `simulator_simple.py`, `simulator_visual.py`, `simulator_text.py` | Earlier self-contained prototypes. They don't use `simcore` and are kept for reference only. |
 | `tests/` | `unittest` suite covering unit → integration → functional → headless GUI, plus an opt-in slow soak tier. |
 | `tools/soak.py` | Multi-seed ecosystem probe: strategy balance, deaths, kin kills, target check. |
+| `tools/evolve.py`, `tools/report_template.html` | Headless single run that writes an HTML evolution report, and optionally a lineage file and checkpoint. |
 
 ## Determinism
 
@@ -24,7 +25,15 @@ simulation, and tests depend on this. New code must draw randomness from
 `world.rng`, never from the `random` module.
 
 Organism `uid`s come from a module-level counter. They are unique, but they are
-not reproducible across worlds, so never compare them between runs.
+not reproducible across worlds, so never compare them between runs. The model
+only ever tests uids for equality, so their values never affect a simulation.
+
+### Checkpoints
+
+`world.save(path)` pickles the whole world, including its RNG state.
+`World.load(path)` restores it and moves the uid counter past every id it
+uses, so a resumed world continues exactly as the original would have (a test
+checks this).
 
 ## World and tick
 
@@ -267,12 +276,43 @@ relatives outlined. H toggles the legend.
 
 `AIL_AUTOQUIT_FRAMES=N` runs without the dialog and exits after N frames.
 
+## Lineage and reports
+
+`World(..., record_lineage=True)` keeps `world.lineage`, a list of:
+
+- `("birth", tick, uid, parent_uid, family, generation, genes_tuple)`.
+  Founders have tick 0 and `parent_uid` None.
+- `("death", tick, uid, cause)`
+
+`tools/evolve.py` runs one world and samples it every `--sample-every`
+ticks. It writes a self-contained HTML report (`tools/report_template.html`
+with the data inlined) showing:
+
+- per-strategy counts
+- generations
+- an absorption spectrum × time heatmap against the emitters
+- a stacked family chart (top 7 founders plus Other)
+- trait means with 10–90% bands
+- a data table
+
+Spectral mismatch is measured against the emitter giving each organism the
+most light at its position. Add `#light` or `#dark` to the report URL to force
+a theme.
+
 ## Performance
 
-At about 330 organisms, a step takes roughly 35–55ms in CPython. About
-two-thirds of that is the shading ray-march: `RadiationField._count_blockers`
-plus the `SpatialGrid.query` calls it makes. The next largest cost is
-neighbour search. See `TODO.md` for the optimisation plan.
+At about 180 organisms, a step takes about 5–7ms in CPython (it was about
+30ms). Three changes, all bit-identical to the previous behaviour:
+
+- Shading tests the absorbers near each emitter against each beam directly,
+  rather than ray-marching through `SpatialGrid`.
+- `SpatialGrid.near()` iterates lazily.
+- Neighbour searches check distance before the costly `can_eat` predicate,
+  and `can_eat` runs the group-defence scan last.
+
+A 10,000-tick run takes about 30–60s and reaches about generation 20–25
+(median). Getting to hundreds of generations needs a faster life cycle,
+which is a balance change (see `TODO.md`), or a NumPy rewrite.
 
 ## Testing strategy
 
@@ -289,7 +329,7 @@ neighbour search. See `TODO.md` for the optimisation plan.
 | Soak (opt-in) | `test_soak.py` | 12 seeds × 3000 ticks: no collapse, absorbers dominate, no incidental kin cannibalism, parasites persist; the full coexistence target is an expected failure |
 
 Run the suite with `python3 -m unittest` from the repo root. It takes about
-35s, most of it in the functional tests. The soak tier is skipped unless
+16s, most of it in the functional tests. The soak tier is skipped unless
 `AIL_SLOW=1` is set, and then adds about a minute.
 
 ### Balance target and `tools/soak.py`

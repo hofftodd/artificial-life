@@ -5,8 +5,8 @@ so a given seed always produces an identical simulation.
 """
 import collections
 import dataclasses
-import itertools
 import math
+import pickle
 import random
 
 # --- world / emitter constants ---
@@ -327,7 +327,23 @@ class RadiationField:
         return 1.0 / max(1.0, demand)
 
 
-_ids = itertools.count(1)
+class _UidCounter:
+    """Process-wide organism id source. Restoring a checkpoint moves it past
+    every id the saved world uses, so new organisms never collide."""
+
+    def __init__(self):
+        self.next_uid = 1
+
+    def __next__(self):
+        uid = self.next_uid
+        self.next_uid += 1
+        return uid
+
+    def ensure_above(self, uid):
+        self.next_uid = max(self.next_uid, uid + 1)
+
+
+_ids = _UidCounter()
 
 
 class Organism:
@@ -516,6 +532,8 @@ class Organism:
                              self.generation + 1, parent=self)
             world.organisms.append(child)
             self.children += 1
+            if world.lineage is not None:
+                world.record_birth(child)
             self.energy -= REPRO_ENERGY
 
     def update(self, world):
@@ -557,10 +575,13 @@ class Organism:
 class World:
     def __init__(self, width=900, height=600, seed=None, num_emitters=NUM_EMITTERS,
                  start_population=START_POPULATION, max_population=MAX_POPULATION,
-                 strategy_mutation=STRATEGY_MUTATION, strategy_mix=None, rules=None):
+                 strategy_mutation=STRATEGY_MUTATION, strategy_mix=None, rules=None,
+                 record_lineage=False):
         """strategy_mix: optional {"absorber": w, "parasite": w, "predator": w}
         weights for the founding population; None draws fully random genomes.
-        rules: optional Rules overriding the balance knobs for this world."""
+        rules: optional Rules overriding the balance knobs for this world.
+        record_lineage: keep self.lineage, a list of birth and death records
+        (see record_birth) for phylogenies and lineage plots."""
         self.width = int(width)
         self.height = int(height)
         self.seed = seed
@@ -589,6 +610,31 @@ class World:
         self.events = []
         self.field = RadiationField(self.width, self.height, self.emitters,
                                     self.organisms, self.grid)
+        self.lineage = [] if record_lineage else None
+        if record_lineage:
+            for o in self.organisms:
+                self.record_birth(o)
+
+    def record_birth(self, o):
+        """("birth", tick, uid, parent_uid, family, generation, genes tuple);
+        founders have parent_uid None and tick 0."""
+        self.lineage.append(("birth", self.tick, o.uid, o.parent_uid, o.family,
+                             o.generation, o.genes.as_tuple()))
+
+    def save(self, path):
+        """Write a checkpoint. World.load(path) resumes it exactly: the same
+        subsequent steps give the same organisms and events."""
+        with open(path, "wb") as f:
+            pickle.dump((1, _ids.next_uid, self), f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @classmethod
+    def load(cls, path):
+        with open(path, "rb") as f:
+            version, next_uid, world = pickle.load(f)
+        if version != 1:
+            raise ValueError("unsupported checkpoint version %r" % (version,))
+        _ids.ensure_above(next_uid - 1)
+        return world
 
     def _founder_genes(self, mix):
         if not mix:
@@ -622,6 +668,8 @@ class World:
                 cause = o.death_cause()
                 self.events.append(("death", o.x, o.y, cause, o.strategy))
                 self.stats[("death", cause, o.strategy)] += 1
+                if self.lineage is not None:
+                    self.lineage.append(("death", self.tick, o.uid, cause))
         self.organisms = survivors
 
     @property
