@@ -18,8 +18,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from simcore import GROUP_RADIUS, STRATEGIES, World  # noqa: E402
-from tools.soak import base_rules, parse_mix, parse_rules, ring_offset  # noqa: E402
+from simcore import GROUP_RADIUS, STRATEGIES, World, species_clusters  # noqa: E402
+from tools.soak import ENVS, base_rules, parse_mix, parse_rules, ring_offset  # noqa: E402
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_template.html")
 SPECTRUM_BINS = 20            # 1..100 in bins of 5
@@ -64,7 +64,7 @@ def relatives_nearby(world):
     for o in world.organisms:
         n = 0
         for k in world.grid.near(o.x, o.y, GROUP_RADIUS):
-            if k is not o and k.family == o.family and \
+            if k is not o and o.is_kin(k) and \
                     math.hypot(k.x - o.x, k.y - o.y) <= GROUP_RADIUS:
                 n += 1
         out.append(n)
@@ -89,6 +89,8 @@ class Sampler:
         self.spectrum = []           # per sample: counts per bin
         self.family_counts = []      # per sample: {family: count}
         self.emitters = [{"spectrum": [], "strength": []} for _ in world.emitters]
+        self.markers = []            # per sample: counts per marker band
+        self.species = []            # per sample: marker clusters of 3+
         # arms race: each trait's mean within the strategy that uses it
         self.arms = {"armor": [], "bite": [], "camouflage": [], "perception": []}
 
@@ -120,6 +122,11 @@ class Sampler:
         for o in orgs:
             bins[min(SPECTRUM_BINS - 1, (o.genes.absorption_spectrum - 1) * SPECTRUM_BINS // 100)] += 1
         self.spectrum.append(bins)
+        mbins = [0] * SPECTRUM_BINS
+        for o in orgs:
+            mbins[min(SPECTRUM_BINS - 1, int((o.genes.marker - 1) * SPECTRUM_BINS // 100))] += 1
+        self.markers.append(mbins)
+        self.species.append(len(species_clusters([o.genes.marker for o in orgs])))
         prey = [o for o in orgs if o.strategy == "absorber"]
         hunters = [o for o in orgs if o.strategy == "predator"]
         for name, group in (("armor", prey), ("camouflage", prey),
@@ -171,6 +178,8 @@ def build_report_data(world, sampler, args, wall):
             "rules": vars(w.rules), "mix": args.mix, "wall_seconds": round(wall, 1),
             "sample_every": args.sample_every, "resumed_from": args.resume,
             "total_births": w.total_births, "deaths": deaths,
+            "sexual_share": w.stats[("birth", "sexual")] / max(1, w.stats[("birth", "sexual")]
+                                                               + w.stats[("birth", "asexual")]),
         },
         "t": sampler.t,
         "counts": sampler.counts,
@@ -181,6 +190,8 @@ def build_report_data(world, sampler, args, wall):
         "families": sampler.families(),
         "emitters": sampler.emitters,
         "arms": sampler.arms,
+        "species": ({"marker_counts": sampler.markers, "count": sampler.species}
+                    if w.rules.kin_by == "marker" or w.rules.sex_rate else None),
     })
 
 
@@ -201,8 +212,8 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=10000, help="ticks to run (after --resume)")
     ap.add_argument("--mix", type=parse_mix, default=None, help="absorber:parasite:predator")
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
-    ap.add_argument("--env", choices=("static", "dynamic"), default="static",
-                    help="dynamic = Rules.dynamic(): seasons, drift and rocks")
+    ap.add_argument("--env", choices=ENVS, default="static",
+                    help="dynamic: seasons, drift, rocks; speciation: marker kin + sex")
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)
     ap.add_argument("--emitters", type=int, default=3)

@@ -336,14 +336,14 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     if small is None or font is None:
         return
     for other in world.organisms:
-        if other is not o and other.family == o.family:
+        if other is not o and o.is_kin(other):
             pygame.draw.circle(screen, (200, 200, 220), (int(other.x), int(other.y)),
                                int(organism_radius(other)) + 3, 1)
     pygame.draw.circle(screen, (255, 255, 255), (int(o.x), int(o.y)),
                        int(organism_radius(o)) + 6, 2)
 
     top = 300 if show_legend else 10
-    rect = pygame.Rect(world.width - 280, top, 270, 246)
+    rect = pygame.Rect(world.width - 280, top, 270, 263)
     panel(screen, rect, 170)
     x, y = rect.x + 12, rect.y + 10
     g = o.genes
@@ -375,6 +375,7 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     line("cover affinity %.2f" % g.cover_affinity)
     line("armour %.2f  bite %.2f  camo %.2f  percep %.2f" % (
         g.armor, g.bite, g.camouflage, g.perception))
+    line("marker %.1f%s" % (g.marker, "   (sexual birth)" if o.mate_uid else ""))
     line("outlined: same family")
 
 

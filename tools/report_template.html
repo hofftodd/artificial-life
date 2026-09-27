@@ -127,6 +127,13 @@ header > div:first-child { min-width: 0; }
   <p class="note">Share of the population per absorption-spectrum band over time (darker = more organisms). Lines trace each emitter's spectrum; adaptation shows as the population's bands following them.</p>
   <div class="card" id="spectrumCard"></div>
 
+  <div id="speciesSection" hidden>
+    <h2>Speciation</h2>
+    <p class="note">Each organism carries a neutral marker gene; kin and mates are chosen by similar markers. Separate bands in the marker heatmap are reproductively isolated groups — species.</p>
+    <div class="card" id="markerCard"></div>
+    <div class="grid" id="speciesCount" style="margin-top:12px"></div>
+  </div>
+
   <h2>Families</h2>
   <p class="note">Descendants of each founder (Muller-style). The seven families with the most presence over the run are shown; the rest are grouped as Other.</p>
   <div id="familyCard"></div>
@@ -287,6 +294,8 @@ const tiles = [
   ["Median generation", fmt(last(DATA.generation.median)), `max ${last(DATA.generation.max) ?? "–"}`],
   ["Population", last(DATA.counts.total).toLocaleString(), `${M.total_births.toLocaleString()} births in this run`],
   ["Families alive", String(last(DATA.families.alive)), `of ${DATA.families.alive[0]} at the start`],
+  ...(DATA.species ? [["Species", String(last(DATA.species.count)),
+    `${Math.round(100 * M.sexual_share)}% of births sexual`]] : []),
   ["Deaths", (M.deaths.eaten + M.deaths.starved + M.deaths["old age"]).toLocaleString(),
     `${M.deaths.eaten} eaten · ${M.deaths.starved} starved · ${M.deaths["old age"]} old age`],
 ];
@@ -349,20 +358,20 @@ Object.entries(DATA.traits).forEach(([k, v]) => lineChart(TR, {
   lineChart(document.getElementById("familyCard"), {title: "Organisms per family (stacked)", series, legend: true, stacked: true, yMin: 0, height: 220, integer: true});
 })();
 
-// ---------- spectrum heatmap ----------
-(() => {
-  const card = document.getElementById("spectrumCard");
-  const h3 = document.createElement("h3"); h3.textContent = "Absorption spectrum over time"; card.appendChild(h3);
+// ---------- heatmaps (a 1..100 gene over time) ----------
+// counts: per sample, organisms per band; lines: [{label, values}] drawn on top
+function heatmap(card, {title, counts, bins, name, lines = []}) {
+  const h3 = document.createElement("h3"); h3.textContent = title; card.appendChild(h3);
   const holder = document.createElement("div"); card.appendChild(holder);
-  const B = DATA.spectrum.bins, C = DATA.spectrum.counts, steps = 8;
+  const B = bins, C = counts, steps = 8;
   function render() {
     holder.innerHTML = "";
     const W = Math.max(280, holder.clientWidth), H = 260, m = {l: 40, r: 70, t: 8, b: 22};
-    const svg = el("svg", {viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "spectrum heatmap"}, holder);
+    const svg = el("svg", {viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": title}, holder);
     const n = C.length, cw = (W - m.l - m.r) / n, ch = (H - m.t - m.b) / B;
     const x0 = T[0], x1 = last(T) || 1;
     const X = t => m.l + (t - x0) / ((x1 - x0) || 1) * (W - m.l - m.r);
-    const Yspec = s => m.t + (1 - (s - 0.5) / 100) * (H - m.t - m.b);
+    const Yv = s => m.t + (1 - (s - 0.5) / 100) * (H - m.t - m.b);
     const g = el("g", {}, svg);
     // colour by share of the population, relative to the run's densest band
     // (linear, so real concentrations stand out). Empty bands stay surface.
@@ -377,26 +386,52 @@ Object.entries(DATA.traits).forEach(([k, v]) => lineChart(TR, {
         el("rect", {x: m.l + i * cw, y: m.t + (B - 1 - b) * ch, width: Math.ceil(cw + 0.5), height: Math.ceil(ch + 0.5), fill: css(`--seq-${lvl}`)}, g);
       });
     });
-    [1, 25, 50, 75, 100].forEach(s => el("text", {x: m.l - 6, y: Yspec(s) + 4, "text-anchor": "end"}, svg).textContent = s);
+    [1, 25, 50, 75, 100].forEach(s => el("text", {x: m.l - 6, y: Yv(s) + 4, "text-anchor": "end"}, svg).textContent = s);
     niceTicks(x0, x1, Math.max(2, Math.floor(W / 110))).forEach(v => el("text", {x: X(v), y: H - 6, "text-anchor": "middle"}, svg).textContent = v.toLocaleString());
-    DATA.emitters.forEach((e, k) => {
-      const pts = e.spectrum.map((s, i) => `${i ? "L" : "M"}${(m.l + (i + 0.5) * cw).toFixed(1)},${Yspec(s).toFixed(1)}`).join("");
+    lines.forEach(line => {
+      const pts = line.values.map((s, i) => `${i ? "L" : "M"}${(m.l + (i + 0.5) * cw).toFixed(1)},${Yv(s).toFixed(1)}`).join("");
       el("path", {d: pts, fill: "none", stroke: css("--surface-1"), "stroke-width": 4, "stroke-linejoin": "round"}, svg);
       el("path", {d: pts, fill: "none", stroke: css("--text-primary"), "stroke-width": 1.5, "stroke-linejoin": "round"}, svg);
-      const s = last(e.spectrum), y = Yspec(s);
-      el("text", {x: W - m.r + 8, y: y + 4}, svg).textContent = `E${k + 1} · ${Math.round(s)}`;
+    });
+    // end labels: lines ending close together share one label instead of
+    // overprinting ("E1, E2 · 95")
+    const ends = lines.map(l => ({label: l.label, v: last(l.values)})).sort((a, b) => a.v - b.v);
+    const groups = [];
+    ends.forEach(e => {
+      const g = groups[groups.length - 1];
+      if (g && Math.abs(e.v - g.v) < 5) g.labels.push(e.label); else groups.push({v: e.v, labels: [e.label]});
+    });
+    groups.forEach(g => {
+      el("text", {x: W - m.r + 8, y: Yv(g.v) + 4}, svg).textContent = `${g.labels.join(", ")} · ${Math.round(g.v)}`;
     });
     const hit = el("rect", {x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent"}, svg);
     hit.addEventListener("mousemove", evt => {
       const r = svg.getBoundingClientRect(), sx = (evt.clientX - r.left) * W / r.width, sy = (evt.clientY - r.top) * H / r.height;
       const i = Math.max(0, Math.min(n - 1, Math.floor((sx - m.l) / cw))), b = Math.max(0, Math.min(B - 1, B - 1 - Math.floor((sy - m.t) / ch)));
       const tot = C[i].reduce((a, c) => a + c, 0), lo = b * (100 / B) + 1, hi = (b + 1) * (100 / B);
-      showTip(evt, `<div class="head">Tick ${T[i].toLocaleString()}</div><div class="row"><span>Spectrum ${lo}–${hi}</span><b>${C[i][b]} of ${tot}</b></div>`);
+      showTip(evt, `<div class="head">Tick ${T[i].toLocaleString()}</div><div class="row"><span>${name} ${lo}–${hi}</span><b>${C[i][b]} of ${tot}</b></div>`);
     });
     hit.addEventListener("mouseleave", hideTip);
   }
   renderers.push(render);
-})();
+}
+
+heatmap(document.getElementById("spectrumCard"), {
+  title: "Absorption spectrum over time", counts: DATA.spectrum.counts, bins: DATA.spectrum.bins,
+  name: "Spectrum", lines: DATA.emitters.map((e, k) => ({label: `E${k + 1}`, values: e.spectrum})),
+});
+
+// ---------- speciation ----------
+if (DATA.species) {
+  document.getElementById("speciesSection").hidden = false;
+  heatmap(document.getElementById("markerCard"), {
+    title: "Marker over time", counts: DATA.species.marker_counts, bins: DATA.spectrum.bins, name: "Marker",
+  });
+  lineChart(document.getElementById("speciesCount"), {
+    title: "Species (marker clusters of 3+)", yMin: 0, integer: true, height: 150,
+    series: [{name: "Species", color: "--series-1", values: DATA.species.count}],
+  });
+}
 
 // ---------- table ----------
 (() => {

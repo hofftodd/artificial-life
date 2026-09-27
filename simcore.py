@@ -43,6 +43,9 @@ WEAK_PREY_ENERGY = 9.0      # heaviest prey a pure predator can overpower
 GROUP_DEFENSE = 2           # relatives within GROUP_RADIUS that make prey safe (0 = off)
 GROUP_RADIUS = 15
 KIN_IMMUNITY = ("none", "non_predators", "all")
+DYNAMIC_PRESET = dict(pulse_period=1500, pulse_depth=0.3, spectrum_drift=0.05,
+                      emitter_drift=0.1, num_rocks=8)
+SPECIATION_PRESET = dict(kin_by="marker", sex_rate=0.5, mate_tolerance=6.0)
 
 # --- strategy trade-offs ---
 ABSORB_MAX = 2.0            # absorption_efficiency of a pure absorber
@@ -65,6 +68,11 @@ BITE_COST = 0.004            # hunters' upkeep per tick at full bite
 CAMO_HARVEST = 0.5           # full camouflage halves light harvest
 DETECT_RANGE = (0.2, 1.5)    # clamp on 1 - target camouflage + own perception
 ARMS_GENES = ("armor", "bite", "camouflage", "perception")
+
+# --- speciation ---
+KIN_MARKER_DIST = 4.0        # with kin_by="marker": kin share a marker within this
+MATE_RANGE = 25.0            # how far a parent looks for a mate
+KIN_BY = ("family", "marker")
 
 # --- foraging and grazing ---
 FORAGE_RADIUS = 15.0         # sample distance per unit of radiation_sensing
@@ -138,6 +146,13 @@ class Rules:
     # armor) + ARMS_BIAS)); camouflage vs perception decides how far away a
     # hunter can spot a target. All four genes carry costs (see DESIGN.md).
     arms_race: bool = True
+    # speciation: kin_by "marker" makes kin anyone with a similar heritable
+    # marker (families can split); sex_rate is the chance a birth is sexual,
+    # with a nearby same-strategy mate whose marker is within mate_tolerance
+    # (assortative mating) and a uniform crossover of both genomes
+    kin_by: str = "family"
+    sex_rate: float = 0.0
+    mate_tolerance: float = 6.0
     # environment dynamics: emitters random-walk their spectrum (sd per tick)
     # and position (px sd per tick), and pulse seasonally, dipping to
     # (1 - pulse_depth) of full output once per pulse_period ticks
@@ -155,6 +170,14 @@ class Rules:
     hidden_detect: float = HIDDEN_DETECT
 
     @classmethod
+    def speciation(cls, **overrides):
+        """Kin by a drifting marker gene, plus sexual reproduction with
+        assortative mating, so lineages can split into species."""
+        values = dict(SPECIATION_PRESET)
+        values.update(overrides)
+        return cls(**values)
+
+    @classmethod
     def dynamic(cls, **overrides):
         """A changing environment: seasons, drifting emitters and rocks.
 
@@ -162,8 +185,7 @@ class Rules:
         (populations swing harder and a bad season can wipe out a seed; see
         DESIGN.md), which is the point for evolution experiments but not for
         the balance baseline."""
-        values = dict(pulse_period=1500, pulse_depth=0.3, spectrum_drift=0.05,
-                      emitter_drift=0.1, num_rocks=8)
+        values = dict(DYNAMIC_PRESET)
         values.update(overrides)
         return cls(**values)
 
@@ -176,6 +198,10 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if self.kin_by not in KIN_BY:
+            raise ValueError("kin_by must be one of %s" % (KIN_BY,))
+        if not 0 <= self.sex_rate <= 1 or self.mate_tolerance < 0:
+            raise ValueError("need 0 <= sex_rate <= 1 and mate_tolerance >= 0")
         if self.movement not in MOVEMENTS:
             raise ValueError("movement must be one of %s" % (MOVEMENTS,))
         if not 0 <= self.defense_per_kin < 1:
@@ -214,7 +240,7 @@ class Gene:
     def __init__(self, absorption_spectrum, absorption, parasitism, predation,
                  movement_ability, radiation_sensing, organism_sensing,
                  kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0,
-                 armor=0.0, bite=0.0, camouflage=0.0, perception=0.0):
+                 armor=0.0, bite=0.0, camouflage=0.0, perception=0.0, marker=50.0):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -237,6 +263,9 @@ class Gene:
         self.bite = bite
         self.camouflage = camouflage
         self.perception = perception
+        # neutral heritable tag, used for kin recognition and mate choice
+        # when Rules.kin_by == "marker"
+        self.marker = marker
 
     @classmethod
     def random(cls, rng):
@@ -255,6 +284,7 @@ class Gene:
             rng.uniform(0.0, 0.3),
             rng.uniform(0.0, 0.3),
             rng.uniform(0.0, 0.3),
+            rng.uniform(1.0, 100.0),
         )
 
     @classmethod
@@ -289,7 +319,18 @@ class Gene:
             clamp(self.bite + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.camouflage + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.perception + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.marker + rng.gauss(0, 1.5), 1.0, 100.0),
         )
+
+    @classmethod
+    def crossover(cls, a, b, rng):
+        """Uniform crossover: each gene from either parent, except the three
+        strategy shares, which come together from one parent."""
+        ta, tb = a.as_tuple(), b.as_tuple()
+        shares = ta[1:4] if rng.random() < 0.5 else tb[1:4]
+        values = [x if rng.random() < 0.5 else y for x, y in zip(ta, tb)]
+        values[1:4] = shares
+        return cls(*values)
 
     @property
     def absorption_efficiency(self):
@@ -331,7 +372,23 @@ class Gene:
             self.bite,
             self.camouflage,
             self.perception,
+            self.marker,
         )
+
+
+def species_clusters(markers, gap=2 * KIN_MARKER_DIST, min_size=3):
+    """Split markers into clusters wherever sorted neighbours are more than
+    `gap` apart; return clusters with at least `min_size` members, each as a
+    sorted list."""
+    clusters, current = [], []
+    for m in sorted(markers):
+        if current and m - current[-1] > gap:
+            clusters.append(current)
+            current = []
+        current.append(m)
+    if current:
+        clusters.append(current)
+    return [c for c in clusters if len(c) >= min_size]
 
 
 class Rock:
@@ -570,13 +627,27 @@ class Organism:
         # founders start a family; descendants inherit it
         self.parent_uid = parent.uid if parent is not None else None
         self.family = parent.family if parent is not None else self.uid
+        # None = kin means same family; a number = kin means markers within it
+        self.kin_dist = parent.kin_dist if parent is not None else None
+        self.mate_uid = None
 
     @property
     def alive(self):
         return not self.dead and self.energy > 0 and self.age < self.max_age
 
     def is_kin(self, other):
-        return other.family == self.family
+        if self.kin_dist is None:
+            return other.family == self.family
+        return abs(other.genes.marker - self.genes.marker) <= self.kin_dist
+
+    def _find_mate(self, world):
+        """Nearest same-strategy organism within MATE_RANGE whose marker is
+        within the world's mate_tolerance (assortative mating)."""
+        tolerance = world.rules.mate_tolerance
+        marker = self.genes.marker
+        return self._nearest(world.grid, MATE_RANGE,
+                             lambda o: o.strategy == self.strategy and o.alive
+                             and abs(o.genes.marker - marker) <= tolerance)
 
     def spares(self, other):
         """Predators leave their own young alone until they come of age."""
@@ -853,9 +924,17 @@ class Organism:
             ny = clamp(self.y + math.sin(angle) * dist, 5, world.height - 5)
             if world.rocks:
                 nx, ny = push_out(nx, ny, world.rocks)
+            genes, mate = self.genes, None
+            if world.rules.sex_rate and world.rng.random() < world.rules.sex_rate:
+                mate = self._find_mate(world)
+                if mate is not None:
+                    genes = Gene.crossover(self.genes, mate.genes, world.rng)
             child = Organism(nx, ny, world.rng,
-                             self.genes.mutated(world.rng, world.strategy_mutation),
+                             genes.mutated(world.rng, world.strategy_mutation),
                              self.generation + 1, parent=self)
+            if mate is not None:
+                child.mate_uid = mate.uid
+            world.stats[("birth", "sexual" if mate is not None else "asexual")] += 1
             world.organisms.append(child)
             self.children += 1
             if world.rules.lifespan is not None:
@@ -964,6 +1043,9 @@ class World:
         if self.rocks:
             for o in self.organisms:
                 o.x, o.y = push_out(o.x, o.y, self.rocks)
+        if self.rules.kin_by == "marker":
+            for o in self.organisms:
+                o.kin_dist = KIN_MARKER_DIST
         self.grid = SpatialGrid()
         self.total_births = 0
         self.tick = 0
@@ -997,10 +1079,11 @@ class World:
                               self.grid, self.rocks, self.rules.rock_shade)
 
     def record_birth(self, o):
-        """("birth", tick, uid, parent_uid, family, generation, genes tuple);
-        founders have parent_uid None and tick 0."""
+        """("birth", tick, uid, parent_uid, family, generation, genes tuple,
+        mate_uid); founders have parent_uid None and tick 0, and asexual
+        births have mate_uid None."""
         self.lineage.append(("birth", self.tick, o.uid, o.parent_uid, o.family,
-                             o.generation, o.genes.as_tuple()))
+                             o.generation, o.genes.as_tuple(), o.mate_uid))
 
     def save(self, path):
         """Write a checkpoint. World.load(path) resumes it exactly: the same

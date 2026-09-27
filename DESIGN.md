@@ -178,6 +178,40 @@ absorbers, and bite 0.14 → 0.6–0.8 and perception 0.12 → 0.2–0.7 among
 predators. The report has an
 "Arms race" section plotting absorber defences against predator weapons.
 
+## Speciation (opt-in)
+
+`Rules.speciation()` (and `--env speciation`, or `--env dynamic+speciation`)
+sets `kin_by="marker"`, `sex_rate=0.5` and `mate_tolerance=6`.
+
+- **Marker gene:** `marker` (1..100, mutation σ 1.5) is a neutral heritable
+  tag. With `kin_by="marker"`, kin means `|Δmarker| ≤ KIN_MARKER_DIST` (4)
+  rather than the same founder, so families can drift apart and split.
+  - The mode is stored per organism (`kin_dist`, inherited), so `is_kin`
+    needs no world.
+  - Kin immunity, group defence, `kin_affinity`, the inspector outline and the
+    report's clumping metric all go through `is_kin`.
+  - `family` still records founder lineage for the Families chart.
+- **Sexual reproduction:** a birth is sexual with probability `sex_rate`.
+  - The parent picks the nearest organism within `MATE_RANGE` (25px) with the
+    same strategy and a marker within `mate_tolerance`. This is assortative
+    mating.
+  - If there is one, the child's genome is `Gene.crossover`: each gene from
+    either parent, with the three strategy shares taken as one block, then
+    mutation.
+  - Otherwise the birth is asexual.
+  - The parent alone pays the energy cost. `child.mate_uid` and the lineage
+    record (8th field) name the mate.
+  - `world.stats[("birth", "sexual" | "asexual")]` counts births.
+- **Species:** `species_clusters(markers)` splits sorted markers at gaps
+  > 2 × `KIN_MARKER_DIST` and keeps clusters of 3+. The report adds a marker ×
+  time heatmap, a species-count chart and a "Species" tile with the sexual
+  share.
+
+**Why opt-in:** it redefines kin for every behaviour. On 6 seeds × 5000
+ticks it's close to balanced (only seed 7 ends at 73, just under the 80
+floor). But non-predators make 30–45% of kills, because relatives with
+drifted markers stop counting as kin.
+
 ## Environment: seasons, drift and rocks
 
 All of this is off in `Rules()` and switched on by `Rules.dynamic()`, which
@@ -258,6 +292,7 @@ Strategy decides:
 | offspring_protection | 0..400 | 40 | 0..800 | ticks a predator spares its own children |
 | cover_affinity | 0..0.5 | 0.08 | 0..1 | pull toward the nearest rock (cover from hunters, at the cost of shade) |
 | armor, bite, camouflage, perception | 0..0.3 | 0.05 | 0..1 | arms race pairs (see Arms race) |
+| marker | 1..100 | 1.5 | 1..100 | neutral tag for kin and mate choice (see Speciation) |
 
 ## Families
 
@@ -337,6 +372,9 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `regrowth_rate` | 0.01 | fraction of the missing reserve regrown per tick |
 | `defense_per_kin` | 0.0 | partial group defence per relative (0 = off) |
 | `arms_race` | True | express armour/bite and camouflage/perception (see Arms race) |
+| `kin_by` | `"family"` | kin = same founder, or `"marker"` = similar marker |
+| `sex_rate` | 0.0 | chance a birth is sexual (needs a nearby compatible mate) |
+| `mate_tolerance` | 6.0 | largest marker difference a mate may have |
 | `kin_immunity` | `"non_predators"` | who won't eat kin: `"none"`, `"non_predators"` or `"all"` |
 | `predators_are_prey` | False | whether predators can be eaten |
 | `group_defense` | 2 | relatives nearby that make prey safe (0 = off) |
@@ -476,6 +514,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_speciation.py` | marker kin, crossover, assortative mating, asexual fallback, lineage mate field, species clusters, presets |
 | Unit | `test_unit_arms.py` | kill chance vs bite − armour (statistical), camouflage and perception reach, costs, mutation bounds |
 | Unit | `test_unit_foraging.py` | grazing and regrowth, foraging choices and fallback, ring mode, partial defence statistics |
 | Unit | `test_unit_environment.py` | rocks (placement, solidity, shadow, cover), `cover_affinity`, seasons, drift bounds, the dynamic preset |

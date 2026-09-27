@@ -92,7 +92,7 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 139 fast tests (unit, integration, functional, and a headless
+There are 158 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
@@ -133,6 +133,10 @@ open runs/seed42.html
   end, and `--resume runs/s42.ckpt --ticks 5000 --out runs/s42b.html` continues
   it exactly.
 - **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
+- **Speciation:** `--env speciation` switches kin to a drifting marker gene
+  and adds sexual reproduction with assortative mating. The report then shows
+  a marker heatmap and a species count. Combine it with a changing world using
+  `--env dynamic+speciation`.
 - **Arms race:** the report's "Arms race" section plots prey defences
   (armour, camouflage) against predator weapons (bite, perception).
 - **Changing environment:** `--env dynamic` adds seasons, drifting emitters and

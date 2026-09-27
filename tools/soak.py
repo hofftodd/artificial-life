@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import math  # noqa: E402
 
-from simcore import (GROUP_RADIUS, MAX_POPULATION, OPTIMAL_DISTANCE, STRATEGIES,  # noqa: E402
-                     Rules, World)
+from simcore import (DYNAMIC_PRESET, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
+                     OPTIMAL_DISTANCE, SPECIATION_PRESET, STRATEGIES, Rules, World)
 
 
 def clumping(world, organisms):
@@ -29,7 +29,7 @@ def clumping(world, organisms):
     total = 0
     for o in organisms:
         for k in world.grid.near(o.x, o.y, GROUP_RADIUS):
-            if k is not o and k.family == o.family and \
+            if k is not o and o.is_kin(k) and \
                     math.hypot(k.x - o.x, k.y - o.y) <= GROUP_RADIUS:
                 total += 1
     return total / len(organisms)
@@ -60,8 +60,21 @@ def parse_mix(text):
     return dict(zip(STRATEGIES, weights))
 
 
+ENVS = ("static", "dynamic", "speciation", "dynamic+speciation")
+
+
 def base_rules(env):
-    return Rules.dynamic() if env == "dynamic" else Rules()
+    """Rules for an --env name: static (defaults), dynamic, speciation, or
+    both joined with '+'."""
+    values = {}
+    for part in env.split("+"):
+        if part == "dynamic":
+            values.update(DYNAMIC_PRESET)
+        elif part == "speciation":
+            values.update(SPECIATION_PRESET)
+        elif part != "static":
+            raise ValueError("unknown env %r" % part)
+    return Rules(**values)
 
 
 def parse_rules(pairs, base=None):
@@ -173,8 +186,8 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=3000)
     ap.add_argument("--mix", type=parse_mix, default=None)
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
-    ap.add_argument("--env", choices=("static", "dynamic"), default="static",
-                    help="dynamic = Rules.dynamic(): seasons, drift and rocks")
+    ap.add_argument("--env", choices=ENVS, default="static",
+                    help="dynamic: seasons, drift, rocks; speciation: marker kin + sex")
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)

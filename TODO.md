@@ -40,10 +40,8 @@
   10k ticks once steps are faster (see Performance).
 - [ ] **Does communalism pay now?** Check whether `kin_affinity` rises under
   group defence.
-- [ ] **Decide how kin recognition should work.** It's currently exact family
-  (the founder's id), so a successful founder's descendants stay one family
-  forever. An alternative is a heritable, drifting "marker" gene with kin
-  meaning a similar marker, which lets families split over time.
+- [x] **Kin recognition:** `Rules.kin_by` offers family or a drifting marker
+  (see Speciation).
 - [ ] **Decide whether "parasites can't parasitise parasites" should be
   continuous.** It's currently a hard rule on the victim's dominant strategy.
   A continuous version would scale theft by `(1 − victim.parasitism)`, which
@@ -96,8 +94,11 @@
   common.
 - [ ] Let organisms track the seasonal optimal ring (evolvable ring-distance
   gene) rather than the fixed `OPTIMAL_DISTANCE`.
-- [ ] Heritable kin marker instead of permanent founder `family`; sexual
-  reproduction with assortative mating (speciation).
+- [x] Speciation (opt-in, `Rules.speciation()` / `--env speciation`): marker
+  gene for kin, sexual reproduction with assortative mating, species
+  clustering, and marker/species report panels.
+- [ ] Decide whether speciation should become the default (non-predators do
+  30–45% of kills under marker kin).
 - [ ] Energy-sharing gene to test Hamilton's rule.
 
 ## Tests
