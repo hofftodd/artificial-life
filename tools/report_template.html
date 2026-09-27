@@ -313,7 +313,9 @@ lineChart(document.getElementById("environment"), {
 const TR = document.getElementById("traits");
 Object.entries(DATA.traits).forEach(([k, v]) => lineChart(TR, {
   title: DATA.trait_labels[k],
-  caption: k === "mismatch" ? "Lower means better matched to the emitter lighting each organism." : null,
+  caption: {mismatch: "Lower means better matched to the emitter lighting each organism.",
+            clumping: "How packed families are; group defence depends on this.",
+            ring_offset: "0 = parked on the optimal ring; foraging spreads organisms out."}[k] || null,
   series: [{name: "Mean", color: "--series-1", values: v.mean, band: [v.p10, v.p90]}],
 }));
 

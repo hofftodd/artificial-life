@@ -99,6 +99,61 @@ Live organisms whose strategy is absorber cast shade along beams traced from
 the emitter to each cell centre. Each blocker within 7px of the beam
 multiplies that cell's intensity by 0.6, and blockers compound.
 
+## Foraging and light depletion
+
+**Why:** a measurement before this change (3 seeds) found:
+
+- Every organism lived on the optimal ring, 77–80px from an emitter, because
+  everyone steered at the same radial ring point.
+- Light never ran out, so nothing moved them on.
+- The ring became a band of relatives, and about 99% of absorbers had 2+
+  relatives within 15px, which made them immune to predators (group defence).
+- Predators starved beside them. None died near the emitters.
+
+**Grazing:**
+
+- Each field cell has a light reserve in `world.reserve` (missing = 1.0).
+- Harvest is multiplied by the cell's reserve.
+- After each tick, a cell loses `depletion_rate` (0.03) × energy harvested
+  there (floor 0.05), and every grazed cell regrows `regrowth_rate` (0.01) of
+  its shortfall.
+- The GUI draws grazed cells dimmer.
+
+**Foraging** (`Rules.movement = "forage"`, the default; `"ring"` restores the
+old steering):
+
+- An organism with no victim to chase scores its own cell and 8 compass points
+  at `radiation_sensing × FORAGE_RADIUS` (15px). Each cell is scored once.
+- Score = expected net radiation gain there, × the cell's reserve, × its
+  crowding share (counting itself as joining).
+- It heads for the best point if that beats staying by `FORAGE_EPS`.
+- If nothing it can sense is lit, it falls back to seeking an emitter's ring.
+- Wider sensing now buys a wider search, at its `SENSE_COST`.
+
+**Partial group defence** (`defense_per_kin`, off by default): each relative
+near the prey multiplies a kill's success by `(1 - defense_per_kin)`. A failed
+attack still costs the predator its cooldown. It's available, but tuning
+found it unnecessary once absorbers move.
+
+**Result** (6 seeds, 5000 ticks):
+
+| | Before | After |
+|---|---|---|
+| Predators | about 1.4% | about 7% |
+| Predator kills per seed | 38–145 | 480–950 |
+| Distance from the ring | 0.5px | 7–11px |
+| Clumping (relatives within 15px) | 7–16 | 5–9 |
+
+With `steal_rate` lowered to 0.05, the default world meets the stable
+coexistence target on the 6 standard seeds. On 12 seeds × 3000 ticks, all
+strategies survive on all 12, and the only miss is one seed ending at 353
+against the 350 ceiling. `Rules.dynamic()` improved too: populations went
+from 27–212 to 70–340, and all strategies survive on 6/6 seeds; parasites
+run high there (about 22%).
+
+Heavier grazing (0.2) collapsed the ecosystem. `group_defense=3` weakens
+protection (it needs more relatives), and predators then overran the prey.
+
 ## Environment: seasons, drift and rocks
 
 All of this is off in `Rules()` and switched on by `Rules.dynamic()`, which
@@ -251,7 +306,11 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `hunt_cooldown` | 12 | ticks between kills |
 | `strategy_cost` | 0.01 | per-tick upkeep for hunters |
 | `weak_prey_energy` | 9.0 | heaviest prey a pure predator can take |
-| `steal_rate` | 0.08 | parasite drain per tick, × stealing ability |
+| `steal_rate` | 0.05 | parasite drain per tick, × stealing ability |
+| `movement` | `"forage"` | `"forage"` (seek the best nearby light) or `"ring"` (original) |
+| `depletion_rate` | 0.03 | reserve lost per unit harvested (0 = light never runs out) |
+| `regrowth_rate` | 0.01 | fraction of the missing reserve regrown per tick |
+| `defense_per_kin` | 0.0 | partial group defence per relative (0 = off) |
 | `kin_immunity` | `"non_predators"` | who won't eat kin: `"none"`, `"non_predators"` or `"all"` |
 | `predators_are_prey` | False | whether predators can be eaten |
 | `group_defense` | 2 | relatives nearby that make prey safe (0 = off) |
@@ -391,6 +450,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_foraging.py` | grazing and regrowth, foraging choices and fallback, ring mode, partial defence statistics |
 | Unit | `test_unit_environment.py` | rocks (placement, solidity, shadow, cover), `cover_affinity`, seasons, drift bounds, the dynamic preset |
 | Unit | `test_unit_organism.py` | migration, lethal zone, stealing, eating, reproduction, death |
 | Integration | `test_integration_world.py` | per-tick invariants, determinism, grid, shading in a live world, extinction without energy |
@@ -399,7 +459,7 @@ that depth, evolution shows up in the report:
 | Soak (opt-in) | `test_soak.py` | 12 seeds × 3000 ticks: no collapse, absorbers dominate, no incidental kin cannibalism, parasites persist; the full coexistence target is an expected failure |
 
 Run the suite with `python3 -m unittest` from the repo root. It takes about
-27s, most of it in the functional tests. The soak tier is skipped unless
+37s, most of it in the functional tests. The soak tier is skipped unless
 `AIL_SLOW=1` is set, and then adds about a minute.
 
 ### Balance target and `tools/soak.py`

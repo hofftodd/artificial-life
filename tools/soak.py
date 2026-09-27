@@ -15,7 +15,30 @@ from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from simcore import STRATEGIES, Rules, World  # noqa: E402
+import math  # noqa: E402
+
+from simcore import GROUP_RADIUS, OPTIMAL_DISTANCE, STRATEGIES, Rules, World  # noqa: E402
+
+
+def clumping(world, organisms):
+    """Mean number of relatives within GROUP_RADIUS, per organism."""
+    if not organisms:
+        return 0.0
+    world.grid.build(world.organisms)
+    total = 0
+    for o in organisms:
+        for k in world.grid.near(o.x, o.y, GROUP_RADIUS):
+            if k is not o and k.family == o.family and \
+                    math.hypot(k.x - o.x, k.y - o.y) <= GROUP_RADIUS:
+                total += 1
+    return total / len(organisms)
+
+
+def ring_offset(world, o):
+    if not world.emitters:
+        return 0.0
+    d = min(math.hypot(o.x - e.x, o.y - e.y) for e in world.emitters)
+    return abs(d - OPTIMAL_DISTANCE)
 
 # acceptance target for "stable coexistence" (see DESIGN.md)
 TARGET_POPULATION = (80, 350)
@@ -77,7 +100,11 @@ def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900,
     tail = slice(len(series["total"]) * 2 // 3, None)
     total_tail = series["total"][tail]
     gens = sorted(o.generation for o in w.organisms)
+    absorbers = [o for o in w.organisms if o.strategy == "absorber"]
+    offsets = sorted(ring_offset(w, o) for o in absorbers)
     out = {
+        "clumping": clumping(w, absorbers),
+        "ring_offset": offsets[len(offsets) // 2] if offsets else 0.0,
         "seed": seed,
         "gen_median": gens[len(gens) // 2] if gens else 0,
         "gen_max": gens[-1] if gens else 0,
@@ -154,18 +181,19 @@ def main(argv=None):
     runs = run_many(args.seeds, args.ticks, args.mix, rules, args.workers,
                     args.width, args.height, args.emitters)
     print("rules:", rules)
-    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s %8s" % (
+    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s %8s %6s %6s" % (
         "seed", "final", "A/P/X final", "mean", "frac A/P/X", "cv P/X",
-        "kills", "by pred", "kin kills", "gen med"))
+        "kills", "by pred", "kin kills", "gen med", "clump", "ring"))
     for r in runs:
         f = r["final"]
-        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d %8d" % (
+        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d %8d %6.1f %6.1f" % (
             r["seed"], f["total"],
             "%d/%d/%d" % (f["absorber"], f["parasite"], f["predator"]),
             r["mean_total"],
             "%.2f/%.2f/%.2f" % (r["frac_absorber"], r["frac_parasite"], r["frac_predator"]),
             "%.2f/%.2f" % (r["cv_parasite"], r["cv_predator"]),
-            r["kills"], r["kills_by_predators"], r["kin_kills"], r["gen_median"]))
+            r["kills"], r["kills_by_predators"], r["kin_kills"], r["gen_median"],
+            r["clumping"], r["ring_offset"]))
     ok, reasons = meets_target(runs)
     print("target:", "MET" if ok else "NOT MET")
     for reason in reasons:

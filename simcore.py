@@ -34,7 +34,7 @@ MAX_POPULATION = 600
 
 # --- predation / theft ---
 PREY_RANGE = 12
-STEAL_RATE = 0.08
+STEAL_RATE = 0.05
 EAT_FRACTION = 0.8           # share of the prey's energy a kill yields
 EAT_GAIN_CAP = 5.0
 HUNT_COOLDOWN = 12
@@ -55,6 +55,16 @@ STRATEGIES = ("absorber", "parasite", "predator")
 # --- social genes ---
 KIN_SPACING = 10             # communal organisms stop approaching kin this close
 PROTECTION_MAX = 800         # upper bound on offspring_protection (ticks)
+
+# --- foraging and grazing ---
+FORAGE_RADIUS = 15.0         # sample distance per unit of radiation_sensing
+FORAGE_EPS = 1e-4            # a spot must beat the current one by this to move
+RESERVE_FLOOR = 0.05         # a grazed cell never drops below this reserve
+DEPLETION_RATE = 0.03        # reserve lost per unit of energy harvested
+REGROWTH_RATE = 0.01         # fraction of the missing reserve regained per tick
+DEFENSE_CAP = 8              # most relatives that count toward partial defence
+_COMPASS = [(math.cos(k * math.pi / 4), math.sin(k * math.pi / 4)) for k in range(8)]
+MOVEMENTS = ("forage", "ring")
 
 # --- environment (see Rules; all off by default) ---
 ROCK_RADIUS = (12, 30)       # rock radius range, px
@@ -102,6 +112,18 @@ class Rules:
     # Generation time tracks the mean age of parents, so shorter lives are the
     # main lever for more generations per tick.
     lifespan: tuple = LIFESPAN
+    # grazing: harvesting lowers a cell's light reserve (by depletion_rate x
+    # energy harvested), which regrows toward full at regrowth_rate per tick.
+    # 0 = light never runs out.
+    depletion_rate: float = DEPLETION_RATE
+    regrowth_rate: float = REGROWTH_RATE
+    # "forage": organisms without a victim to chase move to the best nearby
+    # spot (light x reserve x crowding) within radiation_sensing x
+    # FORAGE_RADIUS; "ring": everyone heads for the optimal ring (original)
+    movement: str = "forage"
+    # partial group defence: each relative of the prey within GROUP_RADIUS
+    # multiplies a kill's chance of success by (1 - defense_per_kin); 0 = off
+    defense_per_kin: float = 0.0
     # environment dynamics: emitters random-walk their spectrum (sd per tick)
     # and position (px sd per tick), and pulse seasonally, dipping to
     # (1 - pulse_depth) of full output once per pulse_period ticks
@@ -140,6 +162,12 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if self.movement not in MOVEMENTS:
+            raise ValueError("movement must be one of %s" % (MOVEMENTS,))
+        if not 0 <= self.defense_per_kin < 1:
+            raise ValueError("defense_per_kin must be in [0, 1)")
+        if self.depletion_rate < 0 or not 0 < self.regrowth_rate <= 1:
+            raise ValueError("need depletion_rate >= 0 and 0 < regrowth_rate <= 1")
         if not 0 <= self.pulse_depth <= 1:
             raise ValueError("pulse_depth must be in [0, 1]")
         if not 0 <= self.rock_shade <= 1:
@@ -538,15 +566,20 @@ class Organism:
     def _defended(self, prey, needed, grid):
         """Whether `prey` has at least `needed` relatives close enough to fend
         off an attack."""
+        return self._guards(prey, grid, needed) >= needed
+
+    def _guards(self, prey, grid, cap):
+        """Relatives of `prey` (other than this attacker) within GROUP_RADIUS,
+        counted up to `cap`."""
         count = 0
         for o in grid.near(prey.x, prey.y, GROUP_RADIUS):
             if o is prey or o is self or o.dead or not prey.is_kin(o):
                 continue
             if math.hypot(o.x - prey.x, o.y - prey.y) <= GROUP_RADIUS:
                 count += 1
-                if count >= needed:
-                    return True
-        return False
+                if count >= cap:
+                    break
+        return count
 
     def _nearest(self, grid, radius, accept=None):
         best, best_d = None, radius
@@ -580,6 +613,55 @@ class Organism:
             return base(o)
         return visible
 
+    def _forage_score(self, world, key, own_key, matches):
+        """Expected net radiation gain per tick if this organism stood in
+        field cell `key`, counting grazing and crowding; None where there's no
+        light. `matches` are its spectral matches to each emitter."""
+        field = world.field
+        demand = field.demand.get(key, 0.0)
+        if key != own_key:
+            demand += self.genes.absorption   # it would join that cell
+        share = 1.0 / max(1.0, demand)
+        reserve = world.reserve.get(key, 1.0)
+        eff = self.genes.absorption_efficiency
+        total, lit = 0.0, False
+        for layer, match in zip(field.by_emitter, matches):
+            rad = layer.get(key, 0.0)
+            if rad > 0:
+                lit = True
+                g = radiation_effect(rad, match, eff)
+                total += g * share * reserve if g > 0 else g
+        return total if lit else None
+
+    def _forage_target(self, world):
+        """The best of the current spot and 8 compass points at
+        radiation_sensing x FORAGE_RADIUS, or None if none of them is lit.
+        Light is per field cell, so each cell is scored once."""
+        spectrum = self.genes.absorption_spectrum
+        matches = [spectral_match(e.spectrum, spectrum) for e in world.emitters]
+        own_key = (int(self.x // FIELD_CELL), int(self.y // FIELD_CELL))
+        here = self._forage_score(world, own_key, own_key, matches)
+        best, best_score = None, here
+        seen = {own_key}
+        r = self.genes.radiation_sensing * FORAGE_RADIUS
+        w, h = world.width, world.height
+        for ux, uy in _COMPASS:
+            x, y = self.x + ux * r, self.y + uy * r
+            if not (0 <= x < w and 0 <= y < h):
+                continue
+            key = (int(x // FIELD_CELL), int(y // FIELD_CELL))
+            if key in seen:
+                continue            # same cell, same score: can't win by FORAGE_EPS
+            seen.add(key)
+            score = self._forage_score(world, key, own_key, matches)
+            if score is None:
+                continue
+            if best_score is None or score > best_score + FORAGE_EPS:
+                best, best_score = (x, y), score
+        if best is not None:
+            return best
+        return (self.x, self.y) if here is not None else None
+
     def _emitter_target(self, world):
         best_e, best_d = None, self.genes.radiation_sensing * 200
         for e in world.emitters:
@@ -603,7 +685,11 @@ class Organism:
             if victim is not None:
                 tx, ty = victim.x, victim.y
         if tx is None:
-            target = self._emitter_target(world)
+            target = None
+            if world.rules.movement == "forage":
+                target = self._forage_target(world)
+            if target is None:
+                target = self._emitter_target(world)
             if target is not None:
                 tx, ty = target
 
@@ -682,6 +768,13 @@ class Organism:
             if (prey is None or other.energy < prey.energy) and self.can_eat(other, world):
                 prey = other
         if prey is not None:
+            if rules.defense_per_kin:
+                n = self._guards(prey, world.grid, DEFENSE_CAP)
+                if n and world.rng.random() >= (1.0 - rules.defense_per_kin) ** n:
+                    # relatives fended it off; the attack still costs a cooldown
+                    self.hunt_cd = rules.hunt_cooldown
+                    world.stats[("repelled", self.strategy, prey.strategy)] += 1
+                    return
             prey.dead = True
             self.energy += min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
             self.hunt_cd = rules.hunt_cooldown
@@ -716,6 +809,11 @@ class Organism:
         self.age += 1
 
         share = world.field.share_at(self.x, self.y)
+        grazing = world.rules.depletion_rate > 0
+        if grazing:
+            key = (int(self.x // FIELD_CELL), int(self.y // FIELD_CELL))
+            share *= world.reserve.get(key, 1.0)
+            harvested = 0.0
         for i, e in enumerate(world.emitters):
             rad = world.field.intensity_at(self.x, self.y, i)
             if rad > 0:
@@ -724,8 +822,16 @@ class Organism:
                     spectral_match(e.spectrum, self.genes.absorption_spectrum),
                     self.genes.absorption_efficiency,
                 )
-                # harvest is shared with cell-mates; radiation damage is not
-                self.energy += gain * share if gain > 0 else gain
+                # harvest is shared with cell-mates (and limited by the cell's
+                # grazed reserve); radiation damage is not
+                if gain > 0:
+                    self.energy += gain * share
+                    if grazing:
+                        harvested += gain * share
+                else:
+                    self.energy += gain
+        if grazing and harvested:
+            world.harvest[key] = world.harvest.get(key, 0.0) + harvested
 
         self._move(world)
         self._steal(world)
@@ -769,6 +875,10 @@ class World:
         # cumulative tallies for analysis: ("eat"|"steal", actor, victim, kin)
         # and ("death", cause, strategy)
         self.stats = collections.Counter()
+        # grazing state: field cell -> light reserve (missing = 1.0), and this
+        # tick's harvest per cell
+        self.reserve = {}
+        self.harvest = {}
         self.emitters = [
             Emitter(self.rng.randint(60, self.width - 60),
                     self.rng.randint(60, self.height - 60), self.rng)
@@ -875,6 +985,25 @@ class World:
                 if self.lineage is not None:
                     self.lineage.append(("death", self.tick, o.uid, cause))
         self.organisms = survivors
+        if self.rules.depletion_rate:
+            self._graze()
+
+    def _graze(self):
+        """Apply this tick's harvest to the reserves, then let them regrow."""
+        rules = self.rules
+        reserve = self.reserve
+        for key, h in self.harvest.items():
+            reserve[key] = max(RESERVE_FLOOR, reserve.get(key, 1.0) - rules.depletion_rate * h)
+        self.harvest = {}
+        full = []
+        for key, v in reserve.items():
+            v += rules.regrowth_rate * (1.0 - v)
+            if v > 0.999:
+                full.append(key)
+            else:
+                reserve[key] = v
+        for key in full:
+            del reserve[key]
 
     @property
     def generation(self):

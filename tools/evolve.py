@@ -18,8 +18,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from simcore import STRATEGIES, World  # noqa: E402
-from tools.soak import base_rules, parse_mix, parse_rules  # noqa: E402
+from simcore import GROUP_RADIUS, STRATEGIES, World  # noqa: E402
+from tools.soak import base_rules, parse_mix, parse_rules, ring_offset  # noqa: E402
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_template.html")
 SPECTRUM_BINS = 20            # 1..100 in bins of 5
@@ -28,6 +28,8 @@ TOP_FAMILIES = 7              # plus "Other"
 # (key, label, accessor)
 TRAITS = [
     ("mismatch", "Spectral mismatch to local light", None),
+    ("clumping", "Relatives within 15px", None),
+    ("ring_offset", "Distance from the optimal ring (px)", None),
     ("absorption", "Absorption share", lambda o: o.genes.absorption),
     ("parasitism", "Parasitism share", lambda o: o.genes.parasitism),
     ("predation", "Predation share", lambda o: o.genes.predation),
@@ -53,6 +55,20 @@ def spectral_mismatch(world, o):
     if best_i is None:
         return None
     return abs(world.emitters[best_i].spectrum - o.genes.absorption_spectrum)
+
+
+def relatives_nearby(world):
+    """Per organism: relatives within GROUP_RADIUS (the group-defence radius)."""
+    world.grid.build(world.organisms)
+    out = []
+    for o in world.organisms:
+        n = 0
+        for k in world.grid.near(o.x, o.y, GROUP_RADIUS):
+            if k is not o and k.family == o.family and \
+                    math.hypot(k.x - o.x, k.y - o.y) <= GROUP_RADIUS:
+                n += 1
+        out.append(n)
+    return out
 
 
 def quantile(sorted_vals, q):
@@ -87,6 +103,10 @@ class Sampler:
         for key, _, get in TRAITS:
             if key == "mismatch":
                 vals = [m for m in (spectral_mismatch(w, o) for o in orgs) if m is not None]
+            elif key == "clumping":
+                vals = relatives_nearby(w)
+            elif key == "ring_offset":
+                vals = [ring_offset(w, o) for o in orgs]
             else:
                 vals = [get(o) for o in orgs]
             vals.sort()

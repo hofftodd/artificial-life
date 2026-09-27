@@ -130,7 +130,9 @@ class FieldLayer:
             base = spectrum_color(e.spectrum)
             for (cx, cy), intensity in world.field.by_emitter[i].items():
                 color = (255, 60, 60) if intensity > RADIATION_DANGER else base
-                alpha = int(clamp(intensity / RADIATION_ENERGY, 0.0, 1.0) * 110)
+                # grazed cells (see World.reserve) show dimmer
+                reserve = world.reserve.get((cx, cy), 1.0)
+                alpha = int(clamp(intensity * reserve / RADIATION_ENERGY, 0.0, 1.0) * 110)
                 if alpha > 0:
                     pygame.draw.rect(self.surf, (*color, alpha),
                                      (cx * FIELD_CELL, cy * FIELD_CELL, FIELD_CELL, FIELD_CELL))

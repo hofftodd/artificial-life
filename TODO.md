@@ -29,15 +29,9 @@
 
 ## Model
 
-- [ ] **Predators are still too rare.** They sit at about 1–3% and die out on
-  some seeds (`AIL_SLOW=1 python3 -m unittest tests.test_soak` shows this as
-  an expected failure). Parasites, absorbers and total population now meet the
-  target. Leads:
-  - Predators only arise by mutation: a dominant-share flip at
-    `strategy_mutation` 0.1 is rare, so lost predators are slow to return.
-  - Group defence may be too strong once absorber families clump; try a
-    density-dependent or probabilistic version.
-  - Kin-only prey: predators still mostly eat their own absorber family.
+- [x] **Predators too rare** (fixed by foraging and grazing: about 7–10% now,
+  alive on all seeds). Remaining: one of 12 seeds overshoots the 350
+  population ceiling, and parasites run about 22% under `Rules.dynamic()`.
 - [ ] **Boom/bust preset.** Add a `Rules` preset (e.g. `Rules.cycles()`) that
   gives predator–prey oscillations, and a soak metric for cycle period and
   amplitude (the CV columns are a start).

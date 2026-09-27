@@ -58,6 +58,7 @@ Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 | Red strike and burst | a predator kill |
 | Fading ring | a death: red ✕ eaten, grey starved, white old age |
 | Red / green rings round an emitter | lethal zone / optimal distance |
+| Dimmer patches of light | grazed cells: harvesting drains a cell's light, which slowly regrows, so absorbers keep foraging |
 | Grey discs | rocks: they shade the light behind them and hide organisms near their edge from hunters |
 | Emitter label "output 70%" | the emitter's current seasonal output |
 
@@ -91,8 +92,8 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 127 fast tests (unit, integration, functional, and a headless
-pygame GUI test), and they take about 27s. The GUI tests use SDL's dummy video
+There are 138 fast tests (unit, integration, functional, and a headless
+pygame GUI test), and they take about 37s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
 A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
