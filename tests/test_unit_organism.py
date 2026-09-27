@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from simcore import (EAT_GAIN_CAP, ENERGY_CAP, OPTIMAL_DISTANCE, PREY_RANGE,
+from simcore import (EAT_FRACTION, EAT_GAIN_CAP, ENERGY_CAP, OPTIMAL_DISTANCE, PREY_RANGE,
                      STEAL_RATE, World)
 from tests.helpers import (make_gene, make_organism, make_rng,
                            single_emitter_world)
@@ -85,7 +85,7 @@ class TestInteraction(unittest.TestCase):
         w.organisms.extend([pred, prey])
         w.step()
         self.assertTrue(prey.dead)
-        self.assertGreater(pred.energy, pred0 + min(3.0, EAT_GAIN_CAP) - 0.5)
+        self.assertGreater(pred.energy, pred0 + min(3.0 * EAT_FRACTION, EAT_GAIN_CAP) - 0.5)
 
 
 class TestLifecycle(unittest.TestCase):

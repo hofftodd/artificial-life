@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from simcore import OPTIMAL_DISTANCE, PROTECTION_MAX, Gene, Organism, World
+from simcore import OPTIMAL_DISTANCE, PROTECTION_MAX, Gene, Organism, Rules, World
 from tests.helpers import (build_field, make_gene, make_organism, make_rng,
                            single_emitter_world)
 
@@ -152,6 +152,108 @@ class TestFounderMix(unittest.TestCase):
         for strategy in ("absorber", "parasite", "predator"):
             for _ in range(50):
                 self.assertEqual(Gene.random_specialist(rng, strategy).strategy(), strategy)
+
+
+class TestEatingRules(unittest.TestCase):
+    def setUp(self):
+        self.w = empty_world()
+        self.founder = make_organism(500, 350, self.w.rng, make_gene(movement_ability=0.2))
+
+    def _relative(self, x, y, genes=None):
+        """A child of the (distant) founder: kin of every other relative, but
+        nobody's protected offspring except the founder's."""
+        return Organism(x, y, self.w.rng, genes or make_gene(movement_ability=0.2),
+                        parent=self.founder)
+
+    def _eat_once(self, eater, *others):
+        self.w.organisms = [eater, *others]
+        self.w.grid.build(self.w.organisms)
+        before = eater.energy
+        eater._eat(self.w)
+        return eater.energy - before
+
+    def test_absorber_spares_weak_kin_but_eats_weak_stranger(self):
+        eater = self._relative(100, 100, make_gene(absorption=0.7, predation=0.3,
+                                                   movement_ability=0.2))
+        self.assertEqual(eater.strategy, "absorber")
+        kin = self._relative(105, 100)
+        kin.energy = 1.0
+        self._eat_once(eater, kin)
+        self.assertFalse(kin.dead)
+        stranger = make_organism(105, 100, self.w.rng, make_gene(movement_ability=0.2))
+        stranger.energy = 1.0
+        self._eat_once(eater, stranger)
+        self.assertTrue(stranger.dead)
+
+    def test_predator_eats_weak_kin_that_is_not_its_young(self):
+        pred = self._relative(100, 100, make_gene(absorption=0.0, predation=1.0,
+                                                  movement_ability=0.2))
+        sibling = self._relative(105, 100)
+        sibling.energy = 2.0
+        self._eat_once(pred, sibling)
+        self.assertTrue(sibling.dead)
+
+    def test_meal_is_a_fraction_of_prey_energy_capped(self):
+        pred = make_organism(100, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0))
+        prey = make_organism(105, 100, self.w.rng, make_gene())
+        prey.energy = 2.0
+        self.assertAlmostEqual(self._eat_once(pred, prey), 2.0 * self.w.rules.eat_fraction)
+        self.w.rules = Rules(eat_gain_cap=1.0)
+        pred.hunt_cd = 0
+        prey2 = make_organism(105, 100, self.w.rng, make_gene())
+        prey2.energy = 4.0
+        self.assertAlmostEqual(self._eat_once(pred, prey2), 1.0)
+
+    def test_predator_chases_edible_prey_not_the_nearest(self):
+        pred = make_organism(100, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0,
+                                                             organism_sensing=2.0))
+        strong = make_organism(110, 100, self.w.rng, make_gene())
+        strong.energy = 11.0
+        weak = make_organism(140, 100, self.w.rng, make_gene())
+        weak.energy = 1.0
+        self.w.organisms = [pred, strong, weak]
+        self.w.grid.build(self.w.organisms)
+        self.assertIs(pred._nearest(self.w.grid, 80, pred._victim_filter(self.w)), weak)
+
+    def test_predators_are_not_prey_by_default(self):
+        pred = make_organism(100, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0))
+        other = make_organism(105, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0))
+        other.energy = 1.0
+        self._eat_once(pred, other)
+        self.assertFalse(other.dead)
+        self.w.rules = Rules(predators_are_prey=True)
+        self._eat_once(pred, other)
+        self.assertTrue(other.dead)
+
+    def test_group_defense_protects_prey_among_relatives(self):
+        pred = make_organism(100, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0))
+        prey = self._relative(108, 100)
+        prey.energy = 1.0
+        guards = [self._relative(115, 100), self._relative(108, 108)]
+        self.w.rules = Rules(group_defense=2)
+        self._eat_once(pred, prey, *guards)
+        self.assertFalse(prey.dead)
+        self.w.rules = Rules(group_defense=3)
+        self._eat_once(pred, prey, *guards)
+        self.assertTrue(prey.dead)
+
+    def test_rules_are_per_world_and_validated(self):
+        w = World(600, 400, seed=1, num_emitters=0, start_population=0,
+                  rules=Rules(eat_fraction=0.5))
+        self.assertEqual(w.rules.eat_fraction, 0.5)
+        self.assertEqual(empty_world().rules, Rules())
+        with self.assertRaises(ValueError):
+            Rules(kin_immunity="sometimes")
+
+    def test_kills_are_tallied_in_stats(self):
+        pred = make_organism(100, 100, self.w.rng, make_gene(absorption=0.0, predation=1.0,
+                                                             movement_ability=0.2))
+        prey = make_organism(105, 100, self.w.rng, make_gene(movement_ability=0.2))
+        prey.energy = 1.0
+        self.w.organisms = [pred, prey]
+        self.w.step()
+        self.assertEqual(self.w.stats[("eat", "predator", "absorber", False)], 1)
+        self.assertEqual(self.w.stats[("death", "eaten", "absorber")], 1)
 
 
 class TestDeathEvents(unittest.TestCase):

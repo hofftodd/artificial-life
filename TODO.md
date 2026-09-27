@@ -11,6 +11,15 @@
 - [x] Genes for communalism (`kin_affinity`) and `offspring_protection`.
 - [x] Parasites can't parasitise parasites.
 - [x] Renamed "thief" to "parasite".
+- [x] Balance pass (tools/soak.py, `Rules`):
+  - non-predators don't eat kin (this was ~80% of all kills and held the
+    population near 50)
+  - predators aren't prey
+  - predators chase only edible prey
+  - bigger meals (80% of prey energy, cap 5)
+  - cheaper hunting (cooldown 12, upkeep 0.01, prey limit 9)
+  - group defence (2 relatives nearby make prey safe); this is also
+    communalism's benefit
 - [x] UI:
   - setup dialog
   - parasitism, predation and death effects
@@ -20,12 +29,23 @@
 
 ## Model
 
-- [ ] **Give communalism a benefit.** Right now clumping only costs absorbers
-  (cell-mates split the light), so selection pushes `kin_affinity` down.
-  Options:
-  - group defence: prey with ≥ N kin nearby can't be eaten
-  - kin don't steal from or eat each other
-  - kin shading doesn't count against relatives
+- [ ] **Predators are still too rare.** They sit at about 1–3% and die out on
+  some seeds (`AIL_SLOW=1 python3 -m unittest tests.test_soak` shows this as
+  an expected failure). Parasites, absorbers and total population now meet the
+  target. Leads:
+  - Predators only arise by mutation: a dominant-share flip at
+    `strategy_mutation` 0.1 is rare, so lost predators are slow to return.
+  - Group defence may be too strong once absorber families clump; try a
+    density-dependent or probabilistic version.
+  - Kin-only prey: predators still mostly eat their own absorber family.
+- [ ] **Boom/bust preset.** Add a `Rules` preset (e.g. `Rules.cycles()`) that
+  gives predator–prey oscillations, and a soak metric for cycle period and
+  amplitude (the CV columns are a start).
+- [ ] **Soak runs need longer horizons.** 3000 ticks is still partly the
+  growth phase, especially in bigger worlds; the slow tier should move to
+  10k ticks once steps are faster (see Performance).
+- [ ] **Does communalism pay now?** Check whether `kin_affinity` rises under
+  group defence.
 - [ ] **Decide how kin recognition should work.** It's currently exact family
   (the founder's id), so a successful founder's descendants stay one family
   forever. An alternative is a heritable, drifting "marker" gene with kin
@@ -34,9 +54,6 @@
   continuous.** It's currently a hard rule on the victim's dominant strategy.
   A continuous version would scale theft by `(1 − victim.parasitism)`, which
   fits generalists better.
-- [ ] **Watch predator/prey dynamics.** In the default mixed world, hunters
-  hold the population well below the predator-free carrying capacity, and
-  some seeds decline slowly. Worth a soak study before tuning further.
 - [ ] **Recheck spectral adaptation in the full ecosystem.** It's now
   plausible with light competition in place; consider restoring an
   ecosystem-level test.
@@ -73,7 +90,8 @@
 
 ## Tests
 
-- [ ] Mark the slow functional tests (about 30s) so a quick run can skip them.
+- [ ] Mark the slow functional tests (about 30s) so a quick run can skip them
+  (the soak tier already uses `AIL_SLOW=1`).
 - [ ] Add a regression test for self-shading once it's fixed.
 
 ## GPU note

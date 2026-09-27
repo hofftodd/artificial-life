@@ -87,9 +87,23 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 92 tests (unit, integration, functional, and a headless pygame GUI
-test), and they take about 35s. The GUI tests use SDL's dummy video driver, so
-they don't need a display.
+There are 100 fast tests (unit, integration, functional, and a headless
+pygame GUI test), and they take about 35s. The GUI tests use SDL's dummy video
+driver, so they don't need a display.
+
+A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
+balance:
+
+```sh
+AIL_SLOW=1 python3 -m unittest tests.test_soak
+```
+
+To probe balance directly, or to try other rules, use the soak tool:
+
+```sh
+python3 tools/soak.py --seeds 1 2 3 7 42 99 --ticks 3000
+python3 tools/soak.py --mix 8:1:1 --set hunt_cooldown=16 --set group_defense=3
+```
 
 ## More
 

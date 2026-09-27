@@ -3,6 +3,8 @@
 All randomness flows through a single random.Random instance owned by World
 so a given seed always produces an identical simulation.
 """
+import collections
+import dataclasses
 import itertools
 import math
 import random
@@ -29,10 +31,14 @@ MAX_POPULATION = 600
 # --- predation / theft ---
 PREY_RANGE = 12
 STEAL_RATE = 0.08
-EAT_GAIN_CAP = 1.5
-HUNT_COOLDOWN = 24
-STRATEGY_COST = 0.02
-WEAK_PREY_ENERGY = REPRO_ENERGY  # heaviest prey a pure predator can overpower
+EAT_FRACTION = 0.8           # share of the prey's energy a kill yields
+EAT_GAIN_CAP = 5.0
+HUNT_COOLDOWN = 12
+STRATEGY_COST = 0.01
+WEAK_PREY_ENERGY = 9.0      # heaviest prey a pure predator can overpower
+GROUP_DEFENSE = 2           # relatives within GROUP_RADIUS that make prey safe (0 = off)
+GROUP_RADIUS = 15
+KIN_IMMUNITY = ("none", "non_predators", "all")
 
 # --- strategy trade-offs ---
 ABSORB_MAX = 2.0            # absorption_efficiency of a pure absorber
@@ -51,6 +57,33 @@ SHADE_FACTOR = 0.6
 SHADING_RADIUS = 7
 FIELD_CELL = 20
 BEAM_STEP = 10
+
+
+@dataclasses.dataclass
+class Rules:
+    """Per-world balance knobs. Defaults are the module constants; pass a
+    modified copy to World to experiment (e.g. with tools/soak.py)."""
+    eat_fraction: float = EAT_FRACTION
+    eat_gain_cap: float = EAT_GAIN_CAP
+    hunt_cooldown: int = HUNT_COOLDOWN
+    strategy_cost: float = STRATEGY_COST
+    weak_prey_energy: float = WEAK_PREY_ENERGY
+    steal_rate: float = STEAL_RATE
+    # who refuses to eat its own family: "non_predators" stops absorbers and
+    # parasites with a small predation share from culling their relatives,
+    # while real predators (which evolve inside absorber families) still hunt
+    kin_immunity: str = "non_predators"
+    # predators are dangerous prey; mirrors "parasites can't parasitise
+    # parasites". Without this, related predators cull each other out.
+    predators_are_prey: bool = False
+    # a prey refuge: an organism with at least this many relatives within
+    # GROUP_RADIUS can't be eaten (0 = off). Stabilises predator-prey
+    # dynamics and gives communalism (kin_affinity) a benefit.
+    group_defense: int = GROUP_DEFENSE
+
+    def __post_init__(self):
+        if self.kin_immunity not in KIN_IMMUNITY:
+            raise ValueError("kin_immunity must be one of %s" % (KIN_IMMUNITY,))
 
 
 def clamp(v, lo, hi):
@@ -318,6 +351,35 @@ class Organism:
         """Predators leave their own young alone until they come of age."""
         return other.parent_uid == self.uid and other.age < self.genes.offspring_protection
 
+    def can_eat(self, other, world):
+        """Whether this organism could overpower and eat `other` right now."""
+        rules = world.rules
+        if other.energy >= rules.weak_prey_energy * self.genes.eating_ability:
+            return False
+        if other.strategy == "predator" and not rules.predators_are_prey:
+            return False
+        if rules.group_defense and self._defended(other, rules.group_defense, world.grid):
+            return False
+        if self.spares(other):
+            return False
+        if rules.kin_immunity == "all" or (
+                rules.kin_immunity == "non_predators" and self.strategy != "predator"):
+            return not self.is_kin(other)
+        return True
+
+    def _defended(self, prey, needed, grid):
+        """Whether `prey` has at least `needed` relatives close enough to fend
+        off an attack."""
+        count = 0
+        for o in grid.query(prey.x, prey.y, GROUP_RADIUS):
+            if o is prey or o is self or o.dead or not prey.is_kin(o):
+                continue
+            if math.hypot(o.x - prey.x, o.y - prey.y) <= GROUP_RADIUS:
+                count += 1
+                if count >= needed:
+                    return True
+        return False
+
     def _nearest(self, grid, radius, accept=None):
         best, best_d = None, radius
         for other in grid.query(self.x, self.y, radius):
@@ -330,9 +392,10 @@ class Organism:
                 best, best_d = other, d
         return best
 
-    def _victim_filter(self):
+    def _victim_filter(self, world):
         if self.strategy == "predator":
-            return lambda o: not self.spares(o)
+            # only chase what could actually be eaten on arrival
+            return lambda o: self.can_eat(o, world)
         return lambda o: o.strategy != "parasite"
 
     def _emitter_target(self, world):
@@ -354,7 +417,7 @@ class Organism:
         sense = self.genes.organism_sensing * 40
         tx = ty = None
         if self.strategy in ("predator", "parasite"):
-            victim = self._nearest(world.grid, sense, self._victim_filter())
+            victim = self._nearest(world.grid, sense, self._victim_filter(world))
             if victim is not None:
                 tx, ty = victim.x, victim.y
         if tx is None:
@@ -397,10 +460,11 @@ class Organism:
             if other.strategy == "parasite":
                 continue
             if math.hypot(other.x - self.x, other.y - self.y) <= PREY_RANGE:
-                amt = other.energy * s * STEAL_RATE
+                amt = other.energy * s * world.rules.steal_rate
                 other.energy -= amt
                 self.energy += amt
                 world.events.append(("steal", self.x, self.y, other.x, other.y))
+                world.stats[("steal", self.strategy, other.strategy, self.is_kin(other))] += 1
                 break
 
     def _eat(self, world):
@@ -410,21 +474,21 @@ class Organism:
             self.hunt_cd -= 1
             return
         # weak eaters can only finish off prey that is nearly spent already
-        max_prey = WEAK_PREY_ENERGY * self.genes.eating_ability
+        # (see can_eat)
+        rules = world.rules
         prey = None
         for other in world.grid.query(self.x, self.y, PREY_RANGE):
-            if other is self or other.dead or other.energy >= max_prey:
-                continue
-            if self.spares(other):
+            if other is self or other.dead or not self.can_eat(other, world):
                 continue
             if math.hypot(other.x - self.x, other.y - self.y) <= PREY_RANGE:
                 if prey is None or other.energy < prey.energy:
                     prey = other
         if prey is not None:
             prey.dead = True
-            self.energy += min(prey.energy, EAT_GAIN_CAP)
-            self.hunt_cd = HUNT_COOLDOWN
+            self.energy += min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
+            self.hunt_cd = rules.hunt_cooldown
             world.events.append(("eat", self.x, self.y, prey.x, prey.y))
+            world.stats[("eat", self.strategy, prey.strategy, self.is_kin(prey))] += 1
 
     def _reproduce(self, world):
         if (self.energy > REPRO_ENERGY
@@ -463,7 +527,7 @@ class Organism:
         cost = (MOTION_COST * self.genes.speed
                 + SENSE_COST * (self.genes.radiation_sensing + self.genes.organism_sensing))
         if self.strategy in ("predator", "parasite"):
-            cost += STRATEGY_COST
+            cost += world.rules.strategy_cost
         self.energy -= cost
         self.energy = min(self.energy, ENERGY_CAP)
 
@@ -480,9 +544,10 @@ class Organism:
 class World:
     def __init__(self, width=900, height=600, seed=None, num_emitters=NUM_EMITTERS,
                  start_population=START_POPULATION, max_population=MAX_POPULATION,
-                 strategy_mutation=STRATEGY_MUTATION, strategy_mix=None):
+                 strategy_mutation=STRATEGY_MUTATION, strategy_mix=None, rules=None):
         """strategy_mix: optional {"absorber": w, "parasite": w, "predator": w}
-        weights for the founding population; None draws fully random genomes."""
+        weights for the founding population; None draws fully random genomes.
+        rules: optional Rules overriding the balance knobs for this world."""
         self.width = int(width)
         self.height = int(height)
         self.seed = seed
@@ -490,6 +555,10 @@ class World:
         self.max_population = max_population
         self.repro_chance = REPRO_CHANCE
         self.strategy_mutation = strategy_mutation
+        self.rules = rules if rules is not None else Rules()
+        # cumulative tallies for analysis: ("eat"|"steal", actor, victim, kin)
+        # and ("death", cause, strategy)
+        self.stats = collections.Counter()
         self.emitters = [
             Emitter(self.rng.randint(60, self.width - 60),
                     self.rng.randint(60, self.height - 60), self.rng)
@@ -537,7 +606,9 @@ class World:
             if o.alive:
                 survivors.append(o)
             else:
-                self.events.append(("death", o.x, o.y, o.death_cause(), o.strategy))
+                cause = o.death_cause()
+                self.events.append(("death", o.x, o.y, cause, o.strategy))
+                self.stats[("death", cause, o.strategy)] += 1
         self.organisms = survivors
 
     @property
