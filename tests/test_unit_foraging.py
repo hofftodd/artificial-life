@@ -106,7 +106,7 @@ class TestPartialDefense(unittest.TestCase):
         wins = 0
         for seed in range(trials):
             w = World(600, 400, seed=seed, num_emitters=0, start_population=0,
-                      rules=Rules(group_defense=0, defense_per_kin=d))
+                      rules=Rules(group_defense=0, defense_per_kin=d, arms_race=False))
             founder = make_organism(500, 350, w.rng, make_gene())
             pred = make_organism(100, 100, w.rng, make_gene(absorption=0.0, predation=1.0))
             prey = Organism(108, 100, w.rng, make_gene(), parent=founder)
@@ -126,7 +126,7 @@ class TestPartialDefense(unittest.TestCase):
 
     def test_failed_attack_still_costs_a_cooldown(self):
         w = World(600, 400, seed=1, num_emitters=0, start_population=0,
-                  rules=Rules(group_defense=0, defense_per_kin=0.99))
+                  rules=Rules(group_defense=0, defense_per_kin=0.99, arms_race=False))
         founder = make_organism(500, 350, w.rng, make_gene())
         pred = make_organism(100, 100, w.rng, make_gene(absorption=0.0, predation=1.0))
         prey = Organism(108, 100, w.rng, make_gene(), parent=founder)

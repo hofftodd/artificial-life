@@ -133,6 +133,8 @@ open runs/seed42.html
   end, and `--resume runs/s42.ckpt --ticks 5000 --out runs/s42b.html` continues
   it exactly.
 - **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
+- **Arms race:** the report's "Arms race" section plots prey defences
+  (armour, camouflage) against predator weapons (bite, perception).
 - **Changing environment:** `--env dynamic` adds seasons, drifting emitters and
   rocks. Rocks cast shade and give organisms cover from hunters. Tune it with
   `--set`, e.g. `--set num_rocks=15 --set pulse_depth=0.5`.

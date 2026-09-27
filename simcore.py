@@ -56,6 +56,16 @@ STRATEGIES = ("absorber", "parasite", "predator")
 KIN_SPACING = 10             # communal organisms stop approaching kin this close
 PROTECTION_MAX = 800         # upper bound on offspring_protection (ticks)
 
+# --- arms race (Rules.arms_race) ---
+ARMS_K = 6.0                 # steepness of the bite-vs-armour kill chance
+ARMS_BIAS = 1.5              # kill chance at bite == armour: sigmoid(1.5) ~ 82%
+ARMOR_SLOW = 0.5             # full armour halves movement
+ARMOR_COST = 0.004           # upkeep per tick at full armour
+BITE_COST = 0.004            # hunters' upkeep per tick at full bite
+CAMO_HARVEST = 0.5           # full camouflage halves light harvest
+DETECT_RANGE = (0.2, 1.5)    # clamp on 1 - target camouflage + own perception
+ARMS_GENES = ("armor", "bite", "camouflage", "perception")
+
 # --- foraging and grazing ---
 FORAGE_RADIUS = 15.0         # sample distance per unit of radiation_sensing
 FORAGE_EPS = 1e-4            # a spot must beat the current one by this to move
@@ -124,6 +134,10 @@ class Rules:
     # partial group defence: each relative of the prey within GROUP_RADIUS
     # multiplies a kill's chance of success by (1 - defense_per_kin); 0 = off
     defense_per_kin: float = 0.0
+    # arms race: armour vs bite decides kills (sigmoid(ARMS_K * (bite -
+    # armor) + ARMS_BIAS)); camouflage vs perception decides how far away a
+    # hunter can spot a target. All four genes carry costs (see DESIGN.md).
+    arms_race: bool = True
     # environment dynamics: emitters random-walk their spectrum (sd per tick)
     # and position (px sd per tick), and pulse seasonally, dipping to
     # (1 - pulse_depth) of full output once per pulse_period ticks
@@ -199,7 +213,8 @@ class Gene:
 
     def __init__(self, absorption_spectrum, absorption, parasitism, predation,
                  movement_ability, radiation_sensing, organism_sensing,
-                 kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0):
+                 kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0,
+                 armor=0.0, bite=0.0, camouflage=0.0, perception=0.0):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -217,6 +232,11 @@ class Gene:
         # pull toward the nearest rock: cover from hunters, at the cost of
         # the rock's shadow
         self.cover_affinity = cover_affinity
+        # arms race (only expressed when Rules.arms_race is on)
+        self.armor = armor
+        self.bite = bite
+        self.camouflage = camouflage
+        self.perception = perception
 
     @classmethod
     def random(cls, rng):
@@ -231,6 +251,10 @@ class Gene:
             rng.uniform(0.0, 0.5),
             rng.randint(0, PROTECTION_MAX // 2),
             rng.uniform(0.0, 0.5),
+            rng.uniform(0.0, 0.3),
+            rng.uniform(0.0, 0.3),
+            rng.uniform(0.0, 0.3),
+            rng.uniform(0.0, 0.3),
         )
 
     @classmethod
@@ -261,6 +285,10 @@ class Gene:
             clamp(self.kin_affinity + rng.gauss(0, 0.08), 0.0, 1.0),
             int(clamp(self.offspring_protection + rng.gauss(0, 40), 0, PROTECTION_MAX)),
             clamp(self.cover_affinity + rng.gauss(0, 0.08), 0.0, 1.0),
+            clamp(self.armor + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.bite + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.camouflage + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.perception + rng.gauss(0, 0.05), 0.0, 1.0),
         )
 
     @property
@@ -299,6 +327,10 @@ class Gene:
             self.kin_affinity,
             self.offspring_protection,
             self.cover_affinity,
+            self.armor,
+            self.bite,
+            self.camouflage,
+            self.perception,
         )
 
 
@@ -605,16 +637,31 @@ class Organism:
             base = lambda o: self.can_eat(o, world)  # noqa: E731
         else:
             base = lambda o: o.strategy != "parasite"  # noqa: E731
+        rules = world.rules
+        if rules.arms_race:
+            sense = self.genes.organism_sensing * 40
+            lo, hi = DETECT_RANGE
+            perception = self.genes.perception
+            inner = base
+
+            def detected(o):
+                # camouflage shortens the range a hunter can spot a target at;
+                # perception extends it
+                reach = sense * clamp(1.0 - o.genes.camouflage + perception, lo, hi)
+                if math.hypot(o.x - self.x, o.y - self.y) > reach:
+                    return False
+                return inner(o)
+            base = detected
         if not world.rocks:
             return base
-        rules = world.rules
+        chase = base
 
         def visible(o):
             # organisms in cover can only be spotted up close
             if (math.hypot(o.x - self.x, o.y - self.y) > rules.hidden_detect
                     and in_cover(o.x, o.y, world.rocks, rules.cover_range)):
                 return False
-            return base(o)
+            return chase(o)
         return visible
 
     def _forage_score(self, world, key, own_key, matches):
@@ -685,7 +732,8 @@ class Organism:
         sense = self.genes.organism_sensing * 40
         tx = ty = None
         if self.strategy in ("predator", "parasite"):
-            victim = self._nearest(world.grid, sense, self._victim_filter(world))
+            reach = sense * DETECT_RANGE[1] if world.rules.arms_race else sense
+            victim = self._nearest(world.grid, reach, self._victim_filter(world))
             if victim is not None:
                 tx, ty = victim.x, victim.y
         if tx is None:
@@ -731,6 +779,8 @@ class Organism:
         else:
             self.direction += world.rng.gauss(0, 0.4)
         speed = self.genes.speed
+        if world.rules.arms_race:
+            speed *= 1.0 - ARMOR_SLOW * self.genes.armor
         x = clamp(self.x + math.cos(self.direction) * speed, 5, world.width - 5)
         y = clamp(self.y + math.sin(self.direction) * speed, 5, world.height - 5)
         if world.rocks:
@@ -779,6 +829,13 @@ class Organism:
                     self.hunt_cd = rules.hunt_cooldown
                     world.stats[("repelled", self.strategy, prey.strategy)] += 1
                     return
+            if rules.arms_race:
+                edge = ARMS_K * (self.genes.bite - prey.genes.armor) + ARMS_BIAS
+                if world.rng.random() >= 1.0 / (1.0 + math.exp(-edge)):
+                    # the prey's armour held; the attack still costs a cooldown
+                    self.hunt_cd = rules.hunt_cooldown
+                    world.stats[("resisted", self.strategy, prey.strategy)] += 1
+                    return
             prey.dead = True
             self.energy += min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
             self.hunt_cd = rules.hunt_cooldown
@@ -813,6 +870,8 @@ class Organism:
         self.age += 1
 
         share = world.field.share_at(self.x, self.y)
+        if world.rules.arms_race and self.genes.camouflage:
+            share *= 1.0 - CAMO_HARVEST * self.genes.camouflage
         grazing = world.rules.depletion_rate > 0
         if grazing:
             key = (int(self.x // FIELD_CELL), int(self.y // FIELD_CELL))
@@ -845,6 +904,11 @@ class Organism:
                 + SENSE_COST * (self.genes.radiation_sensing + self.genes.organism_sensing))
         if self.strategy in ("predator", "parasite"):
             cost += world.rules.strategy_cost
+        if world.rules.arms_race:
+            g = self.genes
+            cost += ARMOR_COST * g.armor + SENSE_COST * g.perception
+            if self.strategy in ("predator", "parasite"):
+                cost += BITE_COST * g.bite
         self.energy -= cost
         self.energy = min(self.energy, ENERGY_CAP)
 

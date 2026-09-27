@@ -156,6 +156,28 @@ run high there (about 22%).
 Heavier grazing (0.2) collapsed the ecosystem. `group_defense=3` weakens
 protection (it needs more relatives), and predators then overran the prey.
 
+## Arms race
+
+`Rules.arms_race` is on by default. There are four genes (0..1, founders
+0..0.3, mutation σ 0.05), in two opposed pairs, and each carries a cost.
+
+| Pair | Mechanic | Cost |
+|---|---|---|
+| `armor` vs `bite` | A kill that passes `can_eat` (and any partial-defence roll) succeeds with probability `sigmoid(ARMS_K (6) × (bite − armor) + ARMS_BIAS (1.5))`, which is about 82% when they're equal. A resisted attack still costs the cooldown. | Armour slows movement (`× (1 − 0.5·armor)`) and costs `0.004·armor` per tick. Hunters pay `0.004·bite`. |
+| `camouflage` vs `perception` | A hunter only spots a target within `organism_sensing × 40 × clamp(1 − camouflage + perception, 0.2, 1.5)`, so it may search up to 1.5× its base range. This applies to chasing by predators and parasites. | Camouflage cuts light harvest (`× (1 − 0.5·camouflage)`). Perception is charged like sensing (`SENSE_COST`). |
+
+**Balance.** Adding the genes shifts the RNG stream. On 6 seeds × 5000
+ticks, the arms-race-off baseline under the new stream lost seed 3 to a
+parasite takeover (89% parasites), and parasites averaged 26%. With the arms
+race on, the stable-coexistence target was met: 6/6 seeds; 12 seeds × 3000
+ticks (populations 91–357, predators 3–10%, parasites 8–17%); and under
+`Rules.dynamic()` (6/6 seeds; parasites fell from about 22% to 7–15%). The
+strict soak test is now a regular test. In seed 42 over 10k ticks, both sides
+escalate: armour 0.16 → about 0.30 and camouflage 0.17 → about 0.23 among
+absorbers, and bite 0.14 → 0.6–0.8 and perception 0.12 → 0.2–0.7 among
+predators. The report has an
+"Arms race" section plotting absorber defences against predator weapons.
+
 ## Environment: seasons, drift and rocks
 
 All of this is off in `Rules()` and switched on by `Rules.dynamic()`, which
@@ -235,6 +257,7 @@ Strategy decides:
 | kin_affinity | 0..0.5 | 0.08 | 0..1 | communalism: pull toward nearest same-family organism |
 | offspring_protection | 0..400 | 40 | 0..800 | ticks a predator spares its own children |
 | cover_affinity | 0..0.5 | 0.08 | 0..1 | pull toward the nearest rock (cover from hunters, at the cost of shade) |
+| armor, bite, camouflage, perception | 0..0.3 | 0.05 | 0..1 | arms race pairs (see Arms race) |
 
 ## Families
 
@@ -313,6 +336,7 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `depletion_rate` | 0.03 | reserve lost per unit harvested (0 = light never runs out) |
 | `regrowth_rate` | 0.01 | fraction of the missing reserve regrown per tick |
 | `defense_per_kin` | 0.0 | partial group defence per relative (0 = off) |
+| `arms_race` | True | express armour/bite and camouflage/perception (see Arms race) |
 | `kin_immunity` | `"non_predators"` | who won't eat kin: `"none"`, `"non_predators"` or `"all"` |
 | `predators_are_prey` | False | whether predators can be eaten |
 | `group_defense` | 2 | relatives nearby that make prey safe (0 = off) |
@@ -452,6 +476,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_arms.py` | kill chance vs bite − armour (statistical), camouflage and perception reach, costs, mutation bounds |
 | Unit | `test_unit_foraging.py` | grazing and regrowth, foraging choices and fallback, ring mode, partial defence statistics |
 | Unit | `test_unit_environment.py` | rocks (placement, solidity, shadow, cover), `cover_affinity`, seasons, drift bounds, the dynamic preset |
 | Unit | `test_unit_organism.py` | migration, lethal zone, stealing, eating, reproduction, death |

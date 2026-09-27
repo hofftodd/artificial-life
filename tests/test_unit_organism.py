@@ -2,7 +2,7 @@ import math
 import unittest
 
 from simcore import (CHILD_SHARE, EAT_FRACTION, EAT_GAIN_CAP, ENERGY_CAP, OPTIMAL_DISTANCE,
-                     PREY_RANGE, REPRO_ENERGY, STEAL_RATE, World)
+                     PREY_RANGE, REPRO_ENERGY, STEAL_RATE, Rules, World)
 from tests.helpers import (make_gene, make_organism, make_rng,
                            single_emitter_world)
 
@@ -77,7 +77,8 @@ class TestInteraction(unittest.TestCase):
         self.assertGreater(parasite.energy, parasite0 + expected * 0.8)
 
     def test_eating_kills_prey(self):
-        w = World(600, 400, seed=1, num_emitters=0, start_population=0)
+        w = World(600, 400, seed=1, num_emitters=0, start_population=0,
+                  rules=Rules(arms_race=False))
         pred = make_organism(100, 100, w.rng,
                              make_gene(absorption=0.0, predation=1.0, movement_ability=0.2))
         prey = make_organism(105, 100, w.rng, make_gene(movement_ability=0.2))

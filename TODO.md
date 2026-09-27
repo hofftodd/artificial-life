@@ -30,9 +30,8 @@
 ## Model
 
 - [x] **Predators too rare** (fixed by foraging and grazing: about 7–10% now,
-  alive on all seeds). Remaining: on 12 seeds, seed 4 ends at 489, just over
-  the ceiling of 80% of the population cap (480), and parasites run about 22%
-  under `Rules.dynamic()`.
+  alive on all seeds). With the arms race, the full coexistence target is met
+  on 12 seeds and under `Rules.dynamic()`.
 - [ ] **Boom/bust preset.** Add a `Rules` preset (e.g. `Rules.cycles()`) that
   gives predator–prey oscillations, and a soak metric for cycle period and
   amplitude (the CV columns are a start).
@@ -84,6 +83,9 @@
 
 ## Evolution experiments
 
+- [x] Arms race: armour vs bite and camouflage vs perception, each with
+  costs, on by default (`Rules.arms_race`), with an "Arms race" report
+  section.
 - [x] Lineage recording, checkpoints, and the `tools/evolve.py` HTML report.
 - [ ] Phylogeny view from the lineage file (tree or Muller by lineage, not just
   family).

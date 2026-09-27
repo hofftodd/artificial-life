@@ -89,6 +89,8 @@ class Sampler:
         self.spectrum = []           # per sample: counts per bin
         self.family_counts = []      # per sample: {family: count}
         self.emitters = [{"spectrum": [], "strength": []} for _ in world.emitters]
+        # arms race: each trait's mean within the strategy that uses it
+        self.arms = {"armor": [], "bite": [], "camouflage": [], "perception": []}
 
     def sample(self):
         w = self.world
@@ -118,6 +120,12 @@ class Sampler:
         for o in orgs:
             bins[min(SPECTRUM_BINS - 1, (o.genes.absorption_spectrum - 1) * SPECTRUM_BINS // 100)] += 1
         self.spectrum.append(bins)
+        prey = [o for o in orgs if o.strategy == "absorber"]
+        hunters = [o for o in orgs if o.strategy == "predator"]
+        for name, group in (("armor", prey), ("camouflage", prey),
+                            ("bite", hunters), ("perception", hunters)):
+            self.arms[name].append(statistics.fmean(getattr(o.genes, name) for o in group)
+                                   if group else None)
         for e, rec in zip(w.emitters, self.emitters):
             rec["spectrum"].append(e.spectrum)
             rec["strength"].append(e.strength)
@@ -172,6 +180,7 @@ def build_report_data(world, sampler, args, wall):
         "spectrum": {"bins": SPECTRUM_BINS, "counts": sampler.spectrum},
         "families": sampler.families(),
         "emitters": sampler.emitters,
+        "arms": sampler.arms,
     })
 
 

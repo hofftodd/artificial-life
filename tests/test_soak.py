@@ -39,12 +39,9 @@ class TestSoak(unittest.TestCase):
         alive = sum(1 for r in self.runs if r["final"]["parasite"] > 0)
         self.assertGreaterEqual(alive, len(self.runs) - 3)
 
-    @unittest.expectedFailure
     def test_stable_coexistence_target(self):
-        # With foraging and grazing, all strategies survive on all 12 seeds
-        # (predators ~10%); the only miss is seed 4 ending at 489, just over
-        # the ceiling of 80% of MAX_POPULATION (480) (see TODO.md). Remove the
-        # decorator once tools/soak.py reports "target: MET" on these seeds.
+        # met since foraging/grazing (predators viable) and the arms race
+        # (armour/camouflage keep parasites and predators in check)
         ok, reasons = meets_target(self.runs)
         self.assertTrue(ok, "; ".join(reasons))
 

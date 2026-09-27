@@ -343,7 +343,7 @@ def draw_inspector(screen, fonts, world, o, show_legend):
                        int(organism_radius(o)) + 6, 2)
 
     top = 300 if show_legend else 10
-    rect = pygame.Rect(world.width - 280, top, 270, 229)
+    rect = pygame.Rect(world.width - 280, top, 270, 246)
     panel(screen, rect, 170)
     x, y = rect.x + 12, rect.y + 10
     g = o.genes
@@ -373,6 +373,8 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     line("sensing: radiation %.1f   organisms %.1f" % (g.radiation_sensing, g.organism_sensing))
     line("kin affinity %.2f   spares young %d ticks" % (g.kin_affinity, g.offspring_protection))
     line("cover affinity %.2f" % g.cover_affinity)
+    line("armour %.2f  bite %.2f  camo %.2f  percep %.2f" % (
+        g.armor, g.bite, g.camouflage, g.perception))
     line("outlined: same family")
 
 

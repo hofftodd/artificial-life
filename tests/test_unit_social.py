@@ -7,7 +7,9 @@ from tests.helpers import (build_field, make_gene, make_organism, make_rng,
 
 
 def empty_world():
-    return World(600, 400, seed=1, num_emitters=0, start_population=0)
+    # arms_race off: these tests assert certain kills, not armour dice rolls
+    return World(600, 400, seed=1, num_emitters=0, start_population=0,
+                 rules=Rules(arms_race=False))
 
 
 class TestEnergyCompetition(unittest.TestCase):
@@ -198,7 +200,7 @@ class TestEatingRules(unittest.TestCase):
         prey = make_organism(105, 100, self.w.rng, make_gene())
         prey.energy = 2.0
         self.assertAlmostEqual(self._eat_once(pred, prey), 2.0 * self.w.rules.eat_fraction)
-        self.w.rules = Rules(eat_gain_cap=1.0)
+        self.w.rules = Rules(eat_gain_cap=1.0, arms_race=False)
         pred.hunt_cd = 0
         prey2 = make_organism(105, 100, self.w.rng, make_gene())
         prey2.energy = 4.0
@@ -221,7 +223,7 @@ class TestEatingRules(unittest.TestCase):
         other.energy = 1.0
         self._eat_once(pred, other)
         self.assertFalse(other.dead)
-        self.w.rules = Rules(predators_are_prey=True)
+        self.w.rules = Rules(predators_are_prey=True, arms_race=False)
         self._eat_once(pred, other)
         self.assertTrue(other.dead)
 
@@ -230,10 +232,10 @@ class TestEatingRules(unittest.TestCase):
         prey = self._relative(108, 100)
         prey.energy = 1.0
         guards = [self._relative(115, 100), self._relative(108, 108)]
-        self.w.rules = Rules(group_defense=2)
+        self.w.rules = Rules(group_defense=2, arms_race=False)
         self._eat_once(pred, prey, *guards)
         self.assertFalse(prey.dead)
-        self.w.rules = Rules(group_defense=3)
+        self.w.rules = Rules(group_defense=3, arms_race=False)
         self._eat_once(pred, prey, *guards)
         self.assertTrue(prey.dead)
 
@@ -241,7 +243,7 @@ class TestEatingRules(unittest.TestCase):
         w = World(600, 400, seed=1, num_emitters=0, start_population=0,
                   rules=Rules(eat_fraction=0.5))
         self.assertEqual(w.rules.eat_fraction, 0.5)
-        self.assertEqual(empty_world().rules, Rules())
+        self.assertEqual(World(300, 200, seed=1).rules, Rules())
         with self.assertRaises(ValueError):
             Rules(kin_immunity="sometimes")
 

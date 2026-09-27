@@ -111,9 +111,17 @@ header > div:first-child { min-width: 0; }
   <p class="note">How many generations separate living organisms from the founders. Evolution needs many of these.</p>
   <div class="grid" id="generations"></div>
 
+  <div id="armsSection" hidden>
+    <h2>Arms race</h2>
+    <p class="note">Prey defences (mean among absorbers) against hunter weapons (mean among predators). Coevolution shows as the pairs rising together.</p>
+    <div class="grid" id="arms"></div>
+  </div>
+
+  <div id="envSection">
   <h2>Environment</h2>
   <p class="note">Each emitter's output over time. Seasons show as dips; compare them with the strategy counts above. Emitters in phase draw on top of each other; hover to see every value.</p>
   <div class="grid" id="environment"></div>
+  </div>
 
   <h2>Spectrum vs. emitters</h2>
   <p class="note">Share of the population per absorption-spectrum band over time (darker = more organisms). Lines trace each emitter's spectrum; adaptation shows as the population's bands following them.</p>
@@ -303,8 +311,23 @@ lineChart(document.getElementById("generations"), {
            {name: "Max", color: "--series-2", values: DATA.generation.max}],
 });
 
-// ---------- environment ----------
-lineChart(document.getElementById("environment"), {
+// ---------- arms race ----------
+if (M.rules.arms_race) {
+  document.getElementById("armsSection").hidden = false;
+  const A = document.getElementById("arms");
+  lineChart(A, {title: "Armour vs bite", legend: true, yMin: 0, series: [
+    {name: "Armour (absorbers)", color: "--series-1", values: DATA.arms.armor},
+    {name: "Bite (predators)", color: "--series-2", values: DATA.arms.bite}]});
+  lineChart(A, {title: "Camouflage vs perception", legend: true, yMin: 0, series: [
+    {name: "Camouflage (absorbers)", color: "--series-1", values: DATA.arms.camouflage},
+    {name: "Perception (predators)", color: "--series-2", values: DATA.arms.perception}]});
+}
+
+// ---------- environment (hidden when emitters never change) ----------
+const envChanges = DATA.emitters.some(e => e.strength.some(v => v !== 1) ||
+  e.spectrum.some(v => v !== e.spectrum[0]));
+if (!envChanges) document.getElementById("envSection").hidden = true;
+else lineChart(document.getElementById("environment"), {
   title: "Emitter output", legend: true, yMin: 0, height: 150,
   series: DATA.emitters.map((e, k) => ({name: `E${k + 1}`, color: `--series-${k + 1}`, values: e.strength})),
 });
