@@ -76,6 +76,12 @@ ARMS_GENES = ("armor", "bite", "camouflage", "perception")
 AMBIENT_MATCH = 0.6          # diffuse light suits every spectrum moderately
 CARCASS_MIN = 0.05           # carcasses with less energy than this vanish
 
+# --- ranging behaviour (roaming, patrols, parasites moving on, fleeing) ---
+ROAM_LEG = (40, 120)         # ticks a travel leg lasts
+ROAM_POOR = 0.5              # a spot with share x reserve below this is poor
+PATROL_MIN_ENERGY = 2.0      # hunters only patrol when they can afford to
+FLEE_GAIN = 2.0              # strength of the flee pull at wariness 1
+
 # --- speciation ---
 KIN_MARKER_DIST = 4.0        # with kin_by="marker": kin share a marker within this
 MATE_RANGE = 25.0            # how far a parent looks for a mate
@@ -169,6 +175,17 @@ class Rules:
     carcass_fraction: float = 0.0
     carcass_decay: float = 0.01
     scavenge_bite: float = 0.5
+    # ranging behaviour. roam_rate: per-tick chance (x roaming gene, tripled
+    # on a poor spot) of setting off on a straight travel leg. patrol: hunters
+    # with no victim in sight search on legs instead of basking (if energy >
+    # PATROL_MIN_ENERGY). host_min_energy: parasites only chase and drain
+    # hosts richer than this, and pick the richest in reach (0 = the first
+    # host found). flee: non-predators pull away from predators they sense,
+    # in proportion to the wariness gene (which costs sensing upkeep).
+    roam_rate: float = 0.0
+    patrol: bool = False
+    host_min_energy: float = 0.0
+    flee: bool = False
     # speciation: kin_by "marker" makes kin anyone with a similar heritable
     # marker (families can split); sex_rate is the chance a birth is sexual,
     # with a nearby same-strategy mate whose marker is within mate_tolerance
@@ -229,6 +246,8 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if not 0 <= self.roam_rate <= 1 or self.host_min_energy < 0:
+            raise ValueError("need 0 <= roam_rate <= 1 and host_min_energy >= 0")
         if self.ambient_light < 0 or self.tail_strength < 0 or self.dispersal_max < 0:
             raise ValueError("ambient_light, tail_strength and dispersal_max must be >= 0")
         if self.tail_strength and self.tail_range <= 0:
@@ -278,7 +297,7 @@ class Gene:
                  movement_ability, radiation_sensing, organism_sensing,
                  kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0,
                  armor=0.0, bite=0.0, camouflage=0.0, perception=0.0, marker=50.0,
-                 dispersal=0.0):
+                 dispersal=0.0, roaming=0.0, wariness=0.0):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -306,6 +325,10 @@ class Gene:
         self.marker = marker
         # how far children are born from their parent (Rules.dispersal_max)
         self.dispersal = dispersal
+        # tendency to set off on travel legs (Rules.roam_rate)
+        self.roaming = roaming
+        # how hard it runs from predators it senses (Rules.flee)
+        self.wariness = wariness
 
     @classmethod
     def random(cls, rng):
@@ -325,6 +348,8 @@ class Gene:
             rng.uniform(0.0, 0.3),
             rng.uniform(0.0, 0.3),
             rng.uniform(1.0, 100.0),
+            rng.uniform(0.0, 0.3),
+            rng.uniform(0.0, 0.3),
             rng.uniform(0.0, 0.3),
         )
 
@@ -362,6 +387,8 @@ class Gene:
             clamp(self.perception + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.marker + rng.gauss(0, 1.5), 1.0, 100.0),
             clamp(self.dispersal + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.roaming + rng.gauss(0, 0.05), 0.0, 1.0),
+            clamp(self.wariness + rng.gauss(0, 0.05), 0.0, 1.0),
         )
 
     @classmethod
@@ -416,6 +443,8 @@ class Gene:
             self.perception,
             self.marker,
             self.dispersal,
+            self.roaming,
+            self.wariness,
         )
 
 
@@ -691,6 +720,8 @@ class Organism:
         # None = kin means same family; a number = kin means markers within it
         self.kin_dist = parent.kin_dist if parent is not None else None
         self.mate_uid = None
+        self.leg = 0                 # ticks left on a travel leg
+        self.leg_dir = 0.0
 
     @property
     def alive(self):
@@ -767,6 +798,9 @@ class Organism:
         if self.strategy == "predator":
             # only chase what could actually be eaten on arrival
             base = lambda o: self.can_eat(o, world)  # noqa: E731
+        elif world.rules.host_min_energy:
+            floor = world.rules.host_min_energy
+            base = lambda o: o.strategy != "parasite" and o.energy > floor  # noqa: E731
         else:
             base = lambda o: o.strategy != "parasite"  # noqa: E731
         rules = world.rules
@@ -864,20 +898,29 @@ class Organism:
                 best_e.y + dy / d * OPTIMAL_DISTANCE)
 
     def _move(self, world):
+        rules = world.rules
         sense = self.genes.organism_sensing * 40
+        hunter = self.strategy in ("predator", "parasite")
         tx = ty = None
-        if self.strategy in ("predator", "parasite"):
-            reach = sense * DETECT_RANGE[1] if world.rules.arms_race else sense
+        heading = None
+        if hunter:
+            reach = sense * DETECT_RANGE[1] if rules.arms_race else sense
             victim = self._nearest(world.grid, reach, self._victim_filter(world))
             if victim is not None:
                 tx, ty = victim.x, victim.y
+                self.leg = 0                 # a chase ends any travel leg
             elif self.strategy == "predator" and world.carcasses:
                 food = self._nearest_carcass(world, reach)
                 if food is not None:
                     tx, ty = food.x, food.y
-        if tx is None:
+        if tx is None and self.leg > 0:
+            self.leg -= 1
+            heading = self.leg_dir
+        elif tx is None and self._start_leg(world, hunter):
+            heading = self.leg_dir
+        elif tx is None:
             target = None
-            if world.rules.movement == "forage":
+            if rules.movement == "forage":
                 target = self._forage_target(world)
             if target is None:
                 target = self._emitter_target(world)
@@ -885,10 +928,21 @@ class Organism:
                 tx, ty = target
 
         vx = vy = 0.0
-        if tx is not None:
+        if heading is not None:
+            vx, vy = math.cos(heading), math.sin(heading)
+        elif tx is not None:
             d = math.hypot(tx - self.x, ty - self.y)
             if d > 0.5:
                 vx, vy = (tx - self.x) / d, (ty - self.y) / d
+        # wary prey run from the nearest predator they sense
+        if rules.flee and self.strategy != "predator" and self.genes.wariness > 0.05:
+            threat = self._nearest(world.grid, sense, lambda o: o.strategy == "predator")
+            if threat is not None:
+                d = math.hypot(threat.x - self.x, threat.y - self.y)
+                if d > 1e-9:
+                    pull = FLEE_GAIN * self.genes.wariness
+                    vx -= pull * (threat.x - self.x) / d
+                    vy -= pull * (threat.y - self.y) / d
         # communal organisms drift toward the nearest relative, but stop short
         # of piling onto it
         if self.genes.kin_affinity > 0.05:
@@ -922,13 +976,56 @@ class Organism:
             speed *= 1.0 - ARMOR_SLOW * self.genes.armor
         x = clamp(self.x + math.cos(self.direction) * speed, 5, world.width - 5)
         y = clamp(self.y + math.sin(self.direction) * speed, 5, world.height - 5)
+        if self.leg > 0:
+            # travel legs bounce off the world's edges
+            if x <= 5 or x >= world.width - 5:
+                self.leg_dir = math.pi - self.leg_dir
+            if y <= 5 or y >= world.height - 5:
+                self.leg_dir = -self.leg_dir
         if world.rocks:
             x, y = push_out(x, y, world.rocks)
         self.x, self.y = x, y
 
+    def _start_leg(self, world, hunter):
+        """Maybe set off on a straight travel leg; returns whether it did."""
+        rules = world.rules
+        if rules.patrol and hunter and self.energy > PATROL_MIN_ENERGY:
+            # patrols keep roughly the current heading, so searches cover ground
+            self.leg_dir = self.direction + world.rng.uniform(-1.0, 1.0)
+        elif rules.roam_rate and self.genes.roaming > 0.05:
+            chance = rules.roam_rate * self.genes.roaming
+            key = (int(self.x // FIELD_CELL), int(self.y // FIELD_CELL))
+            if world.field.share_at(self.x, self.y) * world.reserve.get(key, 1.0) < ROAM_POOR:
+                chance *= 3.0
+            if world.rng.random() >= chance:
+                return False
+            self.leg_dir = world.rng.uniform(0.0, 2.0 * math.pi)
+        else:
+            return False
+        self.leg = world.rng.randint(*ROAM_LEG)
+        return True
+
     def _steal(self, world):
         s = self.genes.stealing_ability
         if s <= 0.05:
+            return
+        floor = world.rules.host_min_energy
+        if floor:
+            # move-on parasites drain the richest host in reach, and leave
+            # hosts that are already poor
+            host, best = None, floor
+            for other in world.grid.near(self.x, self.y, PREY_RANGE):
+                if other is self or other.dead or other.strategy == "parasite":
+                    continue
+                if other.energy > best and \
+                        math.hypot(other.x - self.x, other.y - self.y) <= PREY_RANGE:
+                    host, best = other, other.energy
+            if host is not None:
+                amt = host.energy * s * world.rules.steal_rate
+                host.energy -= amt
+                self.energy += amt
+                world.events.append(("steal", self.x, self.y, host.x, host.y))
+                world.stats[("steal", self.strategy, host.strategy, self.is_kin(host))] += 1
             return
         for other in world.grid.query(self.x, self.y, PREY_RANGE):
             if other is self or other.dead or other.energy <= 0.1:
@@ -1091,6 +1188,8 @@ class Organism:
             cost += ARMOR_COST * g.armor + SENSE_COST * g.perception
             if self.strategy in ("predator", "parasite"):
                 cost += BITE_COST * g.bite
+        if world.rules.flee:
+            cost += SENSE_COST * self.genes.wariness
         self.energy -= cost
         self.energy = min(self.energy, ENERGY_CAP)
 

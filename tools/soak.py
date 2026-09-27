@@ -118,8 +118,23 @@ def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900,
     w = World(width, height, seed=seed, num_emitters=num_emitters, strategy_mix=mix, rules=rules,
               max_population=max(600, int(600 * width * height / (900 * 600))))
     series = {k: [] for k in ("total",) + STRATEGIES}
+    # ranging, over the final third: share of time beyond the emitter discs,
+    # and how far individuals travel per 100 ticks
+    far = {k: [0, 0] for k in STRATEGIES}
+    travel = {k: [] for k in STRATEGIES}
+    last_pos = {}
     for t in range(1, ticks + 1):
         w.step()
+        if t > ticks * 2 // 3 and t % 100 == 0:
+            now = {}
+            for o in w.organisms:
+                now[o.uid] = (o.x, o.y)
+                far[o.strategy][0] += emitter_distance(w, o) > EMITTER_RANGE
+                far[o.strategy][1] += 1
+                if o.uid in last_pos:
+                    px, py = last_pos[o.uid]
+                    travel[o.strategy].append(math.hypot(o.x - px, o.y - py))
+            last_pos = now
         if t % sample_every == 0:
             counts = dict.fromkeys(STRATEGIES, 0)
             for o in w.organisms:
@@ -130,11 +145,16 @@ def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900,
 
     tail = slice(len(series["total"]) * 2 // 3, None)
     total_tail = series["total"][tail]
+    out_range = {k: (far[k][0] / far[k][1] if far[k][1] else 0.0) for k in STRATEGIES}
+    out_travel = {k: (sorted(travel[k])[len(travel[k]) // 2] if travel[k] else 0.0)
+                  for k in STRATEGIES}
     gens = sorted(o.generation for o in w.organisms)
     absorbers = [o for o in w.organisms if o.strategy == "absorber"]
     offsets = sorted(ring_offset(w, o) for o in absorbers)
     dists = sorted(emitter_distance(w, o) for o in w.organisms)
     out = {
+        "far_by": out_range,
+        "travel_by": out_travel,
         "far": sum(d > EMITTER_RANGE for d in dists) / len(dists) if dists else 0.0,
         "dist": dists[len(dists) // 2] if dists else 0.0,
         "clumping": clumping(w, absorbers),
@@ -227,6 +247,12 @@ def main(argv=None):
             "%.2f/%.2f" % (r["cv_parasite"], r["cv_predator"]),
             r["kills"], r["kills_by_predators"], r["kin_kills"], r["gen_median"],
             r["clumping"], r["ring_offset"], 100 * r["far"], r["dist"]))
+    print("ranging (final third): time beyond %dpx A/P/X, median travel per 100 ticks A/P/X" % EMITTER_RANGE)
+    for r in runs:
+        f, m = r["far_by"], r["travel_by"]
+        print("%5s   far %3.0f%%/%3.0f%%/%3.0f%%   travel %4.0f/%4.0f/%4.0f px" % (
+            r["seed"], 100 * f["absorber"], 100 * f["parasite"], 100 * f["predator"],
+            m["absorber"], m["parasite"], m["predator"]))
     ok, reasons = meets_target(runs)
     print("target:", "MET" if ok else "NOT MET")
     for reason in reasons:
