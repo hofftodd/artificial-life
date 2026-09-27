@@ -233,16 +233,20 @@ class SpatialGrid:
             key = (int(o.x // self.cell), int(o.y // self.cell))
             self.buckets.setdefault(key, []).append(o)
 
-    def query(self, x, y, r, exclude=None):
+    def near(self, x, y, r):
+        """Yield candidates from the buckets covering radius r (a superset of
+        what's actually within r), lazily and in a fixed order."""
         cx, cy = int(x // self.cell), int(y // self.cell)
         span = int(r // self.cell) + 1
-        out = []
+        buckets = self.buckets
         for i in range(cx - span, cx + span + 1):
             for j in range(cy - span, cy + span + 1):
-                for o in self.buckets.get((i, j), ()):
-                    if o is not exclude:
-                        out.append(o)
-        return out
+                bucket = buckets.get((i, j))
+                if bucket:
+                    yield from bucket
+
+    def query(self, x, y, r, exclude=None):
+        return [o for o in self.near(x, y, r) if o is not exclude]
 
 
 class RadiationField:
@@ -260,7 +264,15 @@ class RadiationField:
                 key = (int(o.x // FIELD_CELL), int(o.y // FIELD_CELL))
                 self.demand[key] = self.demand.get(key, 0.0) + o.genes.absorption
         absorbers = [o for o in organisms if not o.dead and o.strategy == "absorber"]
+        reach = EMITTER_RANGE + SHADING_RADIUS
         for e in emitters:
+            # only absorbers near this emitter can sit on one of its beams;
+            # offsets are computed exactly as the per-beam test expects
+            near = []
+            for o in absorbers:
+                ox, oy = o.x - e.x, o.y - e.y
+                if abs(ox) <= reach and abs(oy) <= reach:
+                    near.append((ox, oy))
             field = {}
             x0 = max(0, int((e.x - EMITTER_RANGE) // FIELD_CELL))
             x1 = min(self.cells_x - 1, int((e.x + EMITTER_RANGE) // FIELD_CELL))
@@ -273,38 +285,35 @@ class RadiationField:
                     raw = e.radiation_at(px, py)
                     if raw <= 0:
                         continue
-                    if absorbers:
-                        n = self._count_blockers(e, px, py, absorbers, grid)
+                    if near:
+                        n = self._count_blockers(e, px, py, near)
                         if n:
                             raw *= SHADE_FACTOR ** n
                     field[(cx, cy)] = raw
             self.by_emitter.append(field)
 
     @staticmethod
-    def _count_blockers(e, tx, ty, absorbers, grid):
+    def _count_blockers(e, tx, ty, offsets):
+        """Absorbers (given as offsets from the emitter) within SHADING_RADIUS
+        of the beam from the emitter to (tx, ty), excluding its ends.
+
+        Tests every candidate directly rather than ray-marching through the
+        spatial grid; the result is identical, since the march only ever
+        gathered candidates for this same test.
+        """
         dx, dy = tx - e.x, ty - e.y
         length = math.hypot(dx, dy)
         if length < SHADING_RADIUS * 2:
             return 0
         inv = 1.0 / length
-        seen = set()
+        lo, hi = SHADING_RADIUS, length - SHADING_RADIUS
         count = 0
-        for dist in range(BEAM_STEP, int(length) + 1, BEAM_STEP):
-            px = e.x + dx * dist * inv
-            py = e.y + dy * dist * inv
-            for o in grid.query(px, py, SHADING_RADIUS):
-                if o in seen:
-                    continue
-                seen.add(o)
-                if o.dead or o.strategy != "absorber":
-                    continue
-                ox, oy = o.x - e.x, o.y - e.y
-                d_from_e = (ox * dx + oy * dy) * inv * inv * length
-                if not (SHADING_RADIUS < d_from_e < length - SHADING_RADIUS):
-                    continue
-                perp = abs(ox * dy - oy * dx) * inv
-                if perp < SHADING_RADIUS:
-                    count += 1
+        for ox, oy in offsets:
+            d_from_e = (ox * dx + oy * dy) * inv * inv * length
+            if not (lo < d_from_e < hi):
+                continue
+            if abs(ox * dy - oy * dx) * inv < SHADING_RADIUS:
+                count += 1
         return count
 
     def intensity_at(self, x, y, emitter_index):
@@ -358,20 +367,21 @@ class Organism:
             return False
         if other.strategy == "predator" and not rules.predators_are_prey:
             return False
-        if rules.group_defense and self._defended(other, rules.group_defense, world.grid):
-            return False
         if self.spares(other):
             return False
         if rules.kin_immunity == "all" or (
                 rules.kin_immunity == "non_predators" and self.strategy != "predator"):
-            return not self.is_kin(other)
-        return True
+            if self.is_kin(other):
+                return False
+        # the neighbour scan is the expensive check, so it goes last
+        return not (rules.group_defense
+                    and self._defended(other, rules.group_defense, world.grid))
 
     def _defended(self, prey, needed, grid):
         """Whether `prey` has at least `needed` relatives close enough to fend
         off an attack."""
         count = 0
-        for o in grid.query(prey.x, prey.y, GROUP_RADIUS):
+        for o in grid.near(prey.x, prey.y, GROUP_RADIUS):
             if o is prey or o is self or o.dead or not prey.is_kin(o):
                 continue
             if math.hypot(o.x - prey.x, o.y - prey.y) <= GROUP_RADIUS:
@@ -382,14 +392,16 @@ class Organism:
 
     def _nearest(self, grid, radius, accept=None):
         best, best_d = None, radius
-        for other in grid.query(self.x, self.y, radius):
+        for other in grid.near(self.x, self.y, radius):
             if other is self or other.dead:
+                continue
+            d = math.hypot(other.x - self.x, other.y - self.y)
+            # distance first: accept() can be expensive (see can_eat)
+            if d > best_d:
                 continue
             if accept is not None and not accept(other):
                 continue
-            d = math.hypot(other.x - self.x, other.y - self.y)
-            if d <= best_d:
-                best, best_d = other, d
+            best, best_d = other, d
         return best
 
     def _victim_filter(self, world):
@@ -477,12 +489,13 @@ class Organism:
         # (see can_eat)
         rules = world.rules
         prey = None
-        for other in world.grid.query(self.x, self.y, PREY_RANGE):
-            if other is self or other.dead or not self.can_eat(other, world):
+        for other in world.grid.near(self.x, self.y, PREY_RANGE):
+            if other is self or other.dead:
                 continue
-            if math.hypot(other.x - self.x, other.y - self.y) <= PREY_RANGE:
-                if prey is None or other.energy < prey.energy:
-                    prey = other
+            if math.hypot(other.x - self.x, other.y - self.y) > PREY_RANGE:
+                continue
+            if (prey is None or other.energy < prey.energy) and self.can_eat(other, world):
+                prey = other
         if prey is not None:
             prey.dead = True
             self.energy += min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
