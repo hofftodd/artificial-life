@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import math  # noqa: E402
 
-from simcore import (DYNAMIC_PRESET, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
+from simcore import (DYNAMIC_PRESET, EMITTER_RANGE, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
                      OPTIMAL_DISTANCE, SPECIATION_PRESET, STRATEGIES, Rules, World)
 
 
@@ -33,6 +33,11 @@ def clumping(world, organisms):
                     math.hypot(k.x - o.x, k.y - o.y) <= GROUP_RADIUS:
                 total += 1
     return total / len(organisms)
+
+
+def emitter_distance(world, o):
+    return min(math.hypot(o.x - e.x, o.y - e.y) for e in world.emitters) \
+        if world.emitters else 0.0
 
 
 def ring_offset(world, o):
@@ -119,7 +124,10 @@ def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900,
     gens = sorted(o.generation for o in w.organisms)
     absorbers = [o for o in w.organisms if o.strategy == "absorber"]
     offsets = sorted(ring_offset(w, o) for o in absorbers)
+    dists = sorted(emitter_distance(w, o) for o in w.organisms)
     out = {
+        "far": sum(d > EMITTER_RANGE for d in dists) / len(dists) if dists else 0.0,
+        "dist": dists[len(dists) // 2] if dists else 0.0,
         "clumping": clumping(w, absorbers),
         "ring_offset": offsets[len(offsets) // 2] if offsets else 0.0,
         "seed": seed,
@@ -198,19 +206,19 @@ def main(argv=None):
     runs = run_many(args.seeds, args.ticks, args.mix, rules, args.workers,
                     args.width, args.height, args.emitters)
     print("rules:", rules)
-    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s %8s %6s %6s" % (
+    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s %8s %6s %6s %5s %5s" % (
         "seed", "final", "A/P/X final", "mean", "frac A/P/X", "cv P/X",
-        "kills", "by pred", "kin kills", "gen med", "clump", "ring"))
+        "kills", "by pred", "kin kills", "gen med", "clump", "ring", "far%", "dist"))
     for r in runs:
         f = r["final"]
-        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d %8d %6.1f %6.1f" % (
+        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d %8d %6.1f %6.1f %5.0f %5.0f" % (
             r["seed"], f["total"],
             "%d/%d/%d" % (f["absorber"], f["parasite"], f["predator"]),
             r["mean_total"],
             "%.2f/%.2f/%.2f" % (r["frac_absorber"], r["frac_parasite"], r["frac_predator"]),
             "%.2f/%.2f" % (r["cv_parasite"], r["cv_predator"]),
             r["kills"], r["kills_by_predators"], r["kin_kills"], r["gen_median"],
-            r["clumping"], r["ring_offset"]))
+            r["clumping"], r["ring_offset"], 100 * r["far"], r["dist"]))
     ok, reasons = meets_target(runs)
     print("target:", "MET" if ok else "NOT MET")
     for reason in reasons:

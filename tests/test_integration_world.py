@@ -107,13 +107,13 @@ class TestNoEmitterStarvation(unittest.TestCase):
         # the cost of the minimum genome each step, which bounds time to extinction.
         w = World(600, 400, seed=5, num_emitters=0, start_population=20)
         min_cost = MOTION_COST * 0.2 + SENSE_COST * (0.3 + 0.3)
-        total = sum(o.energy for o in w.organisms)
+        total = sum(o.energy for o in w.organisms) + sum(c.energy for c in w.carcasses)
         limit = int(total / min_cost) + 1
         steps = 0
         while w.organisms and steps < limit:
             w.step()
             steps += 1
-            new_total = sum(o.energy for o in w.organisms)
+            new_total = sum(o.energy for o in w.organisms) + sum(c.energy for c in w.carcasses)
             self.assertLessEqual(new_total, total + 1e-9)
             total = new_total
         self.assertEqual(len(w.organisms), 0)

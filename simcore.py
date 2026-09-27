@@ -69,6 +69,10 @@ CAMO_HARVEST = 0.5           # full camouflage halves light harvest
 DETECT_RANGE = (0.2, 1.5)    # clamp on 1 - target camouflage + own perception
 ARMS_GENES = ("armor", "bite", "camouflage", "perception")
 
+# --- spreading out (ambient light, light tails, dispersal, carcasses) ---
+AMBIENT_MATCH = 0.6          # diffuse light suits every spectrum moderately
+CARCASS_MIN = 0.05           # carcasses with less energy than this vanish
+
 # --- speciation ---
 KIN_MARKER_DIST = 4.0        # with kin_by="marker": kin share a marker within this
 MATE_RANGE = 25.0            # how far a parent looks for a mate
@@ -146,6 +150,22 @@ class Rules:
     # armor) + ARMS_BIAS)); camouflage vs perception decides how far away a
     # hunter can spot a target. All four genes carry costs (see DESIGN.md).
     arms_race: bool = True
+    # spreading out. ambient_light: a weak spectrum-neutral glow everywhere
+    # (intensity units, like RADIATION_ENERGY), so the space between
+    # emitters is habitable. tail_strength / tail_range: each emitter also
+    # casts a dim, wide cone fading to zero at tail_range. dispersal_max: a
+    # child is born up to 12 + dispersal gene x dispersal_max px from its
+    # parent (0 = the original 2-12px). carcass_fraction: share of a dead
+    # organism's energy (and of the part of prey a predator doesn't eat) left
+    # as a carcass that decays by carcass_decay per tick; organisms that can
+    # eat scavenge up to scavenge_bite per tick, and predators seek them out.
+    ambient_light: float = 0.0
+    tail_strength: float = 0.0
+    tail_range: float = 240.0
+    dispersal_max: float = 0.0
+    carcass_fraction: float = 0.0
+    carcass_decay: float = 0.01
+    scavenge_bite: float = 0.5
     # speciation: kin_by "marker" makes kin anyone with a similar heritable
     # marker (families can split); sex_rate is the chance a birth is sexual,
     # with a nearby same-strategy mate whose marker is within mate_tolerance
@@ -198,6 +218,12 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if self.ambient_light < 0 or self.tail_strength < 0 or self.dispersal_max < 0:
+            raise ValueError("ambient_light, tail_strength and dispersal_max must be >= 0")
+        if self.tail_strength and self.tail_range <= 0:
+            raise ValueError("tail_range must be > 0")
+        if not 0 <= self.carcass_fraction <= 1 or not 0 < self.carcass_decay <= 1:
+            raise ValueError("need 0 <= carcass_fraction <= 1 and 0 < carcass_decay <= 1")
         if self.kin_by not in KIN_BY:
             raise ValueError("kin_by must be one of %s" % (KIN_BY,))
         if not 0 <= self.sex_rate <= 1 or self.mate_tolerance < 0:
@@ -240,7 +266,8 @@ class Gene:
     def __init__(self, absorption_spectrum, absorption, parasitism, predation,
                  movement_ability, radiation_sensing, organism_sensing,
                  kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0,
-                 armor=0.0, bite=0.0, camouflage=0.0, perception=0.0, marker=50.0):
+                 armor=0.0, bite=0.0, camouflage=0.0, perception=0.0, marker=50.0,
+                 dispersal=0.0):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -266,6 +293,8 @@ class Gene:
         # neutral heritable tag, used for kin recognition and mate choice
         # when Rules.kin_by == "marker"
         self.marker = marker
+        # how far children are born from their parent (Rules.dispersal_max)
+        self.dispersal = dispersal
 
     @classmethod
     def random(cls, rng):
@@ -285,6 +314,7 @@ class Gene:
             rng.uniform(0.0, 0.3),
             rng.uniform(0.0, 0.3),
             rng.uniform(1.0, 100.0),
+            rng.uniform(0.0, 0.3),
         )
 
     @classmethod
@@ -320,6 +350,7 @@ class Gene:
             clamp(self.camouflage + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.perception + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.marker + rng.gauss(0, 1.5), 1.0, 100.0),
+            clamp(self.dispersal + rng.gauss(0, 0.05), 0.0, 1.0),
         )
 
     @classmethod
@@ -373,6 +404,7 @@ class Gene:
             self.camouflage,
             self.perception,
             self.marker,
+            self.dispersal,
         )
 
 
@@ -389,6 +421,15 @@ def species_clusters(markers, gap=2 * KIN_MARKER_DIST, min_size=3):
     if current:
         clusters.append(current)
     return [c for c in clusters if len(c) >= min_size]
+
+
+class Carcass:
+    """Energy left where an organism died, for scavengers."""
+
+    def __init__(self, x, y, energy):
+        self.x = float(x)
+        self.y = float(y)
+        self.energy = energy
 
 
 class Rock:
@@ -429,11 +470,17 @@ class Emitter:
         self.phase = rng.uniform(0, math.pi * 2)
         self.strength = 1.0      # seasonal output multiplier (see advance)
 
-    def radiation_at(self, x, y):
+    def radiation_at(self, x, y, tail_strength=0.0, tail_range=0.0):
         d = math.hypot(x - self.x, y - self.y)
-        if d < EMITTER_RANGE:
-            return RADIATION_ENERGY * (1.0 - d / EMITTER_RANGE) * self.strength
-        return 0.0
+        if not tail_strength:
+            if d < EMITTER_RANGE:
+                return RADIATION_ENERGY * (1.0 - d / EMITTER_RANGE) * self.strength
+            return 0.0
+        # a dim, wide second cone on top of the core
+        v = RADIATION_ENERGY * (1.0 - d / EMITTER_RANGE) if d < EMITTER_RANGE else 0.0
+        if d < tail_range:
+            v += tail_strength * (1.0 - d / tail_range)
+        return v * self.strength
 
     def apply_season(self, rules, tick):
         if rules.pulse_period and rules.pulse_depth:
@@ -486,7 +533,10 @@ class RadiationField:
     """Precomputed, shading-aware radiation intensity per field cell, per emitter."""
 
     def __init__(self, width, height, emitters, organisms, grid, rocks=(),
-                 rock_shade=ROCK_SHADE):
+                 rock_shade=ROCK_SHADE, tail_strength=0.0, tail_range=0.0, ambient=0.0):
+        # spectrum-neutral light everywhere; not shaded, not per cell
+        self.ambient = ambient
+        extent = max(EMITTER_RANGE, tail_range) if tail_strength else EMITTER_RANGE
         self.cells_x = max(1, width // FIELD_CELL)
         self.cells_y = max(1, height // FIELD_CELL)
         self.by_emitter = []
@@ -498,7 +548,7 @@ class RadiationField:
                 key = (int(o.x // FIELD_CELL), int(o.y // FIELD_CELL))
                 self.demand[key] = self.demand.get(key, 0.0) + o.genes.absorption
         absorbers = [o for o in organisms if not o.dead and o.strategy == "absorber"]
-        reach = EMITTER_RANGE + SHADING_RADIUS
+        reach = extent + SHADING_RADIUS
         for e in emitters:
             # only absorbers near this emitter can sit on one of its beams;
             # offsets are computed exactly as the per-beam test expects
@@ -508,17 +558,17 @@ class RadiationField:
                 if abs(ox) <= reach and abs(oy) <= reach:
                     near.append((ox, oy, (int(o.x // FIELD_CELL), int(o.y // FIELD_CELL))))
             near_rocks = [(r.x - e.x, r.y - e.y, r.r) for r in rocks
-                          if math.hypot(r.x - e.x, r.y - e.y) < EMITTER_RANGE + r.r]
+                          if math.hypot(r.x - e.x, r.y - e.y) < extent + r.r]
             field = {}
-            x0 = max(0, int((e.x - EMITTER_RANGE) // FIELD_CELL))
-            x1 = min(self.cells_x - 1, int((e.x + EMITTER_RANGE) // FIELD_CELL))
-            y0 = max(0, int((e.y - EMITTER_RANGE) // FIELD_CELL))
-            y1 = min(self.cells_y - 1, int((e.y + EMITTER_RANGE) // FIELD_CELL))
+            x0 = max(0, int((e.x - extent) // FIELD_CELL))
+            x1 = min(self.cells_x - 1, int((e.x + extent) // FIELD_CELL))
+            y0 = max(0, int((e.y - extent) // FIELD_CELL))
+            y1 = min(self.cells_y - 1, int((e.y + extent) // FIELD_CELL))
             for cx in range(x0, x1 + 1):
                 for cy in range(y0, y1 + 1):
                     px = (cx + 0.5) * FIELD_CELL
                     py = (cy + 0.5) * FIELD_CELL
-                    raw = e.radiation_at(px, py)
+                    raw = e.radiation_at(px, py, tail_strength, tail_range)
                     if raw <= 0:
                         continue
                     if near_rocks:
@@ -747,6 +797,9 @@ class Organism:
         reserve = world.reserve.get(key, 1.0)
         eff = self.genes.absorption_efficiency
         total, lit = 0.0, False
+        if field.ambient > 0:
+            lit = True
+            total += radiation_effect(field.ambient, AMBIENT_MATCH, eff) * share * reserve
         for layer, match in zip(field.by_emitter, matches):
             rad = layer.get(key, 0.0)
             if rad > 0:
@@ -807,6 +860,10 @@ class Organism:
             victim = self._nearest(world.grid, reach, self._victim_filter(world))
             if victim is not None:
                 tx, ty = victim.x, victim.y
+            elif self.strategy == "predator" and world.carcasses:
+                food = self._nearest_carcass(world, reach)
+                if food is not None:
+                    tx, ty = food.x, food.y
         if tx is None:
             target = None
             if world.rules.movement == "forage":
@@ -908,10 +965,36 @@ class Organism:
                     world.stats[("resisted", self.strategy, prey.strategy)] += 1
                     return
             prey.dead = True
-            self.energy += min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
+            meal = min(max(prey.energy, 0.0) * rules.eat_fraction, rules.eat_gain_cap)
+            self.energy += meal
+            if rules.carcass_fraction:
+                world.leave_carcass(prey.x, prey.y, (max(prey.energy, 0.0) - meal)
+                                    * rules.carcass_fraction)
             self.hunt_cd = rules.hunt_cooldown
             world.events.append(("eat", self.x, self.y, prey.x, prey.y))
             world.stats[("eat", self.strategy, prey.strategy, self.is_kin(prey))] += 1
+
+    def _nearest_carcass(self, world, radius):
+        best, best_d = None, radius
+        for c in world.carcass_grid.near(self.x, self.y, radius):
+            if c.energy <= 0:
+                continue
+            d = math.hypot(c.x - self.x, c.y - self.y)
+            if d <= best_d:
+                best, best_d = c, d
+        return best
+
+    def _scavenge(self, world):
+        """Organisms that can eat take a bite from the nearest carcass."""
+        if self.genes.eating_ability <= 0.05:
+            return
+        c = self._nearest_carcass(world, PREY_RANGE)
+        if c is None:
+            return
+        bite = min(c.energy, world.rules.scavenge_bite)
+        c.energy -= bite
+        self.energy += bite
+        world.stats[("scavenge", self.strategy)] += 1
 
     def _reproduce(self, world):
         cost = world.rules.repro_energy
@@ -919,7 +1002,7 @@ class Organism:
                 and len(world.organisms) < world.max_population
                 and world.rng.random() < world.repro_chance):
             angle = world.rng.uniform(0, math.pi * 2)
-            dist = world.rng.uniform(2, 12)
+            dist = world.rng.uniform(2, 12 + self.genes.dispersal * world.rules.dispersal_max)
             nx = clamp(self.x + math.cos(angle) * dist, 5, world.width - 5)
             ny = clamp(self.y + math.sin(angle) * dist, 5, world.height - 5)
             if world.rocks:
@@ -972,12 +1055,21 @@ class Organism:
                         harvested += gain * share
                 else:
                     self.energy += gain
+        ambient = world.field.ambient
+        if ambient > 0:
+            gain = radiation_effect(ambient, AMBIENT_MATCH, self.genes.absorption_efficiency)
+            if gain > 0:
+                self.energy += gain * share
+                if grazing:
+                    harvested += gain * share
         if grazing and harvested:
             world.harvest[key] = world.harvest.get(key, 0.0) + harvested
 
         self._move(world)
         self._steal(world)
         self._eat(world)
+        if world.carcasses:
+            self._scavenge(world)
 
         cost = (MOTION_COST * self.genes.speed
                 + SENSE_COST * (self.genes.radiation_sensing + self.genes.organism_sensing))
@@ -1026,6 +1118,8 @@ class World:
         # tick's harvest per cell
         self.reserve = {}
         self.harvest = {}
+        self.carcasses = []
+        self.carcass_grid = SpatialGrid()
         self.emitters = [
             Emitter(self.rng.randint(60, self.width - 60),
                     self.rng.randint(60, self.height - 60), self.rng)
@@ -1075,8 +1169,14 @@ class World:
         return rocks
 
     def _build_field(self):
+        r = self.rules
         return RadiationField(self.width, self.height, self.emitters, self.organisms,
-                              self.grid, self.rocks, self.rules.rock_shade)
+                              self.grid, self.rocks, r.rock_shade,
+                              r.tail_strength, r.tail_range, r.ambient_light)
+
+    def leave_carcass(self, x, y, energy):
+        if energy >= CARCASS_MIN:
+            self.carcasses.append(Carcass(x, y, energy))
 
     def record_birth(self, o):
         """("birth", tick, uid, parent_uid, family, generation, genes tuple,
@@ -1117,6 +1217,12 @@ class World:
         self.events = []
         for e in self.emitters:
             e.advance(self)
+        if self.carcasses:
+            keep = 1.0 - self.rules.carcass_decay
+            for c in self.carcasses:
+                c.energy *= keep
+            self.carcasses = [c for c in self.carcasses if c.energy >= CARCASS_MIN]
+            self.carcass_grid.build(self.carcasses)
         self.grid.build(self.organisms)
         self.field = self._build_field()
         before = len(self.organisms)
@@ -1131,6 +1237,8 @@ class World:
                 survivors.append(o)
             else:
                 cause = o.death_cause()
+                if self.rules.carcass_fraction and cause != "eaten" and o.energy > 0:
+                    self.leave_carcass(o.x, o.y, o.energy * self.rules.carcass_fraction)
                 self.events.append(("death", o.x, o.y, cause, o.strategy))
                 self.stats[("death", cause, o.strategy)] += 1
                 if self.lineage is not None:
