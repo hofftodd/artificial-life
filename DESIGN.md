@@ -190,11 +190,13 @@ Clumping costs absorbers light, because cell-mates split it. Its benefit is
    - Pay `MOTION_COST × speed + SENSE_COST × (sensing total)`.
    - Hunters also pay `strategy_cost` (0.01).
    - Cap energy at 12.
-7. **Reproduce:** if energy > 7 and the population is below `max_population`,
-   there is a 1% chance per tick. The child spawns 2–12px away with mutated
-   genes and 3–7 energy. The parent pays 7 and its `children` count goes up.
+7. **Reproduce:** if energy > `repro_energy` (3) and the population is below
+   `max_population`, there is a `repro_chance` (5%) chance per tick. The child
+   spawns 2–12px away with mutated genes and `child_share` (90%) of
+   `repro_energy`. The parent pays `repro_energy` and its `children` count
+   goes up.
 
-An organism dies when its energy reaches ≤ 0, it hits `max_age` (800–2400), or
+An organism dies when its energy reaches ≤ 0, it hits `max_age` (`lifespan`, 150–450), or
 it is eaten.
 
 ### Balance rules (`Rules`)
@@ -213,6 +215,24 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `kin_immunity` | `"non_predators"` | who won't eat kin: `"none"`, `"non_predators"` or `"all"` |
 | `predators_are_prey` | False | whether predators can be eaten |
 | `group_defense` | 2 | relatives nearby that make prey safe (0 = off) |
+| `repro_energy` | 3.0 | energy a parent must exceed to breed, and pays |
+| `child_share` | 0.9 | child's energy as a fraction of `repro_energy`; None = a fresh random 3–7 (original rule) |
+| `repro_chance` | 0.05 | per-tick breeding chance once over `repro_energy` (sets `world.repro_chance`) |
+| `lifespan` | (150, 450) | `(min, max)` range for `max_age`; None = 800–2400 (original rule) |
+
+**Life-cycle tuning.** The generation time is set by the average age of
+parents, not by energy or breeding chance. Under the original rules (lifespan
+800–2400, 7-energy births, 1% chance), organisms breed throughout long lives,
+so a generation took about 430 ticks.
+
+| Change (10k ticks, 6 seeds) | Median generation |
+|---|---|
+| original rules | 22–25 |
+| 2× breeding chance | 23–26 |
+| cheaper children | 27–40, and populations hit the 600 cap |
+
+Short lives with quick, cheap breeding raise this to about 60 generations
+per 5000 ticks, with populations of 94–212 and all strategies present.
 
 The defaults come from the module constants of the same name. They were
 tuned with `tools/soak.py` toward stable coexistence (see Testing). The
@@ -310,9 +330,14 @@ At about 180 organisms, a step takes about 5–7ms in CPython (it was about
 - Neighbour searches check distance before the costly `can_eat` predicate,
   and `can_eat` runs the group-defence scan last.
 
-A 10,000-tick run takes about 30–60s and reaches about generation 20–25
-(median). Getting to hundreds of generations needs a faster life cycle,
-which is a balance change (see `TODO.md`), or a NumPy rewrite.
+With the life-cycle defaults, a 10,000-tick run reaches about generation
+130 (median; seed 42 reached 133, against 23 under the original rules). At
+that depth, evolution shows up in the report:
+
+- spectral mismatch falls from about 28 to about 10
+- one founder family takes over
+- host–parasite boom/bust cycles appear (parasites peak at about 25 while
+  absorbers fall to about 45, then crash while absorbers recover)
 
 ## Testing strategy
 

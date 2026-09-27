@@ -71,12 +71,10 @@
 
 - [x] **Exact speedups (3–4×):** direct beam test for shading, lazy grid
   iteration, and distance-before-predicate neighbour search.
-- [ ] **More generations per run.** Reproduction chance isn't the limit;
-  energy is. Organisms need > 7 energy to breed, which takes hundreds of
-  ticks. Doubling `REPRO_CHANCE` barely helps (21 → 25 generations in 10k
-  ticks). Halving lifespans gives about 40 but destabilises populations. Next:
-  re-tune the energy economy (light, costs, child cost) as `Rules` fields and
-  re-check with `tools/soak.py`.
+- [x] **More generations per run** (about 5–6×). Generation time tracks the
+  average age of parents. The fix was short lifespans (150–450) with cheap,
+  quick breeding (cost 3, 90% to the child, 5% per tick). All four are
+  `Rules` fields (see DESIGN.md, Life-cycle tuning).
 - [ ] **Vectorise with NumPy:**
   - the field and demand grids as arrays
   - organism positions and energies as structured arrays for neighbour search

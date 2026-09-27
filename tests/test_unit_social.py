@@ -256,6 +256,50 @@ class TestEatingRules(unittest.TestCase):
         self.assertEqual(self.w.stats[("death", "eaten", "absorber")], 1)
 
 
+class TestLifeCycleRules(unittest.TestCase):
+    def _breeder(self, rules):
+        w = World(600, 400, seed=3, num_emitters=0, start_population=0, rules=rules)
+        parent = make_organism(100, 100, w.rng, make_gene(movement_ability=0.2))
+        parent.energy = 10.0
+        w.organisms.append(parent)
+        w.grid.build(w.organisms)
+        parent._reproduce(w)
+        return w, parent
+
+    def test_child_gets_share_of_cost(self):
+        w, parent = self._breeder(Rules(repro_energy=4.0, child_share=0.75, repro_chance=1.0))
+        self.assertEqual(len(w.organisms), 2)
+        self.assertAlmostEqual(parent.energy, 6.0)
+        self.assertAlmostEqual(w.organisms[1].energy, 3.0)
+
+    def test_lifespan_range_applies_to_founders_and_children(self):
+        rules = Rules(lifespan=(50, 60), repro_chance=1.0)
+        w = World(600, 400, seed=4, start_population=20, rules=rules)
+        self.assertTrue(all(50 <= o.max_age <= 60 for o in w.organisms))
+        w, _ = self._breeder(rules)
+        self.assertTrue(50 <= w.organisms[1].max_age <= 60)
+
+    def test_repro_chance_comes_from_rules(self):
+        self.assertEqual(World(300, 200, seed=1, rules=Rules(repro_chance=0.2)).repro_chance, 0.2)
+        w, _ = self._breeder(Rules(repro_chance=0.0))
+        self.assertEqual(len(w.organisms), 1)
+
+    def test_life_cycle_rules_are_validated(self):
+        for bad in (dict(child_share=0.0), dict(child_share=1.5), dict(lifespan=(10, 5))):
+            with self.assertRaises(ValueError):
+                Rules(**bad)
+
+    def test_births_never_create_energy(self):
+        rules = Rules(repro_energy=3.0, child_share=1.0, repro_chance=1.0, lifespan=(100, 200))
+        w = World(600, 400, seed=5, num_emitters=0, start_population=30, rules=rules)
+        total = sum(o.energy for o in w.organisms)
+        for _ in range(150):
+            w.step()
+            new_total = sum(o.energy for o in w.organisms)
+            self.assertLessEqual(new_total, total + 1e-9)
+            total = new_total
+
+
 class TestDeathEvents(unittest.TestCase):
     def test_starvation_reported(self):
         w = empty_world()

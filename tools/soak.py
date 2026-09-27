@@ -42,6 +42,8 @@ def parse_rules(pairs):
             raise SystemExit("unknown rule %r; choose from %s" % (key, ", ".join(fields)))
         if fields[key] is bool:
             overrides[key] = value.lower() in ("1", "true", "yes", "on")
+        elif fields[key] is tuple:
+            overrides[key] = tuple(int(v) for v in value.split(","))
         else:
             overrides[key] = fields[key](value)
     return Rules(**overrides)
@@ -69,8 +71,11 @@ def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900,
 
     tail = slice(len(series["total"]) * 2 // 3, None)
     total_tail = series["total"][tail]
+    gens = sorted(o.generation for o in w.organisms)
     out = {
         "seed": seed,
+        "gen_median": gens[len(gens) // 2] if gens else 0,
+        "gen_max": gens[-1] if gens else 0,
         "final": {k: series[k][-1] for k in series},
         "mean_total": statistics.mean(total_tail) if total_tail else 0,
         "series": series,
@@ -142,18 +147,18 @@ def main(argv=None):
     runs = run_many(args.seeds, args.ticks, args.mix, rules, args.workers,
                     args.width, args.height, args.emitters)
     print("rules:", rules)
-    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s" % (
+    print("%5s %5s %13s %6s %15s %11s %6s %7s %9s %8s" % (
         "seed", "final", "A/P/X final", "mean", "frac A/P/X", "cv P/X",
-        "kills", "by pred", "kin kills"))
+        "kills", "by pred", "kin kills", "gen med"))
     for r in runs:
         f = r["final"]
-        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d" % (
+        print("%5s %5d %13s %6.0f %15s %11s %6d %7d %9d %8d" % (
             r["seed"], f["total"],
             "%d/%d/%d" % (f["absorber"], f["parasite"], f["predator"]),
             r["mean_total"],
             "%.2f/%.2f/%.2f" % (r["frac_absorber"], r["frac_parasite"], r["frac_predator"]),
             "%.2f/%.2f" % (r["cv_parasite"], r["cv_predator"]),
-            r["kills"], r["kills_by_predators"], r["kin_kills"]))
+            r["kills"], r["kills_by_predators"], r["kin_kills"], r["gen_median"]))
     ok, reasons = meets_target(runs)
     print("target:", "MET" if ok else "NOT MET")
     for reason in reasons:

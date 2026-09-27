@@ -19,8 +19,12 @@ OPTIMAL_DISTANCE = EMITTER_RANGE * (1.0 - (RADIATION_DANGER / math.sqrt(3.0)) / 
 # --- metabolism ---
 MOTION_COST = 0.005
 SENSE_COST = 0.002
-REPRO_ENERGY = 7.0
-REPRO_CHANCE = 0.01
+# life cycle: short lives and cheap offspring give ~6x more generations per
+# tick than the original 800-2400 lifespan / 7-energy births (tools/soak.py)
+REPRO_ENERGY = 3.0
+REPRO_CHANCE = 0.05
+CHILD_SHARE = 0.9            # child's energy as a fraction of REPRO_ENERGY
+LIFESPAN = (150, 450)        # max_age range
 ENERGY_CAP = 12.0
 
 # --- populations ---
@@ -80,10 +84,27 @@ class Rules:
     # GROUP_RADIUS can't be eaten (0 = off). Stabilises predator-prey
     # dynamics and gives communalism (kin_affinity) a benefit.
     group_defense: int = GROUP_DEFENSE
+    # life cycle: a parent needs more than repro_energy to breed and pays it.
+    # child_share=None gives the child a fresh random 3-7 energy (the original
+    # rule); a number in (0, 1] gives it that fraction of what the parent paid,
+    # so a birth never creates energy and cheaper offspring speed generations.
+    repro_energy: float = REPRO_ENERGY
+    child_share: float = CHILD_SHARE
+    repro_chance: float = REPRO_CHANCE
+    # (min, max) max_age drawn per organism; None keeps the original 800-2400.
+    # Generation time tracks the mean age of parents, so shorter lives are the
+    # main lever for more generations per tick.
+    lifespan: tuple = LIFESPAN
 
     def __post_init__(self):
         if self.kin_immunity not in KIN_IMMUNITY:
             raise ValueError("kin_immunity must be one of %s" % (KIN_IMMUNITY,))
+        if self.child_share is not None and not 0 < self.child_share <= 1:
+            raise ValueError("child_share must be in (0, 1]")
+        if self.lifespan is not None:
+            lo, hi = self.lifespan
+            if not 0 < lo <= hi:
+                raise ValueError("lifespan must be (min, max) with 0 < min <= max")
 
 
 def clamp(v, lo, hi):
@@ -520,7 +541,8 @@ class Organism:
             world.stats[("eat", self.strategy, prey.strategy, self.is_kin(prey))] += 1
 
     def _reproduce(self, world):
-        if (self.energy > REPRO_ENERGY
+        cost = world.rules.repro_energy
+        if (self.energy > cost
                 and len(world.organisms) < world.max_population
                 and world.rng.random() < world.repro_chance):
             angle = world.rng.uniform(0, math.pi * 2)
@@ -532,9 +554,13 @@ class Organism:
                              self.generation + 1, parent=self)
             world.organisms.append(child)
             self.children += 1
+            if world.rules.lifespan is not None:
+                child.max_age = world.rng.randint(*world.rules.lifespan)
+            if world.rules.child_share is not None:
+                child.energy = cost * world.rules.child_share
             if world.lineage is not None:
                 world.record_birth(child)
-            self.energy -= REPRO_ENERGY
+            self.energy -= cost
 
     def update(self, world):
         self.age += 1
@@ -587,9 +613,9 @@ class World:
         self.seed = seed
         self.rng = random.Random(seed)
         self.max_population = max_population
-        self.repro_chance = REPRO_CHANCE
         self.strategy_mutation = strategy_mutation
         self.rules = rules if rules is not None else Rules()
+        self.repro_chance = self.rules.repro_chance
         # cumulative tallies for analysis: ("eat"|"steal", actor, victim, kin)
         # and ("death", cause, strategy)
         self.stats = collections.Counter()
@@ -610,6 +636,9 @@ class World:
         self.events = []
         self.field = RadiationField(self.width, self.height, self.emitters,
                                     self.organisms, self.grid)
+        if self.rules.lifespan is not None:
+            for o in self.organisms:
+                o.max_age = self.rng.randint(*self.rules.lifespan)
         self.lineage = [] if record_lineage else None
         if record_lineage:
             for o in self.organisms:

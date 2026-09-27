@@ -1,8 +1,8 @@
 import math
 import unittest
 
-from simcore import (EAT_FRACTION, EAT_GAIN_CAP, ENERGY_CAP, OPTIMAL_DISTANCE, PREY_RANGE,
-                     STEAL_RATE, World)
+from simcore import (CHILD_SHARE, EAT_FRACTION, EAT_GAIN_CAP, ENERGY_CAP, OPTIMAL_DISTANCE,
+                     PREY_RANGE, REPRO_ENERGY, STEAL_RATE, World)
 from tests.helpers import (make_gene, make_organism, make_rng,
                            single_emitter_world)
 
@@ -41,6 +41,7 @@ class TestRadiationDynamics(unittest.TestCase):
                           make_gene(absorption_spectrum=50,
                                     movement_ability=0.2))
         w.organisms.append(o)
+        w.repro_chance = 0.0  # measure the harvest, not breeding costs
         e0 = o.energy
         for _ in range(20):
             w.step()
@@ -100,8 +101,10 @@ class TestLifecycle(unittest.TestCase):
         child = w.organisms[1]
         self.assertEqual(child.generation, 1)
         self.assertEqual(o.generation, 0)
-        self.assertLess(o.energy, 4.0)
-        self.assertGreater(o.energy, 0.0)
+        # the parent pays REPRO_ENERGY (less a little metabolism), and the
+        # child starts with CHILD_SHARE of it
+        self.assertAlmostEqual(o.energy, 10.0 - REPRO_ENERGY, delta=0.05)
+        self.assertAlmostEqual(child.energy, REPRO_ENERGY * CHILD_SHARE)
 
     def test_energy_cap(self):
         w = World(600, 400, seed=1, num_emitters=0, start_population=0)
