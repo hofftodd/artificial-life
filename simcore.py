@@ -417,7 +417,7 @@ class RadiationField:
             for o in absorbers:
                 ox, oy = o.x - e.x, o.y - e.y
                 if abs(ox) <= reach and abs(oy) <= reach:
-                    near.append((ox, oy))
+                    near.append((ox, oy, (int(o.x // FIELD_CELL), int(o.y // FIELD_CELL))))
             near_rocks = [(r.x - e.x, r.y - e.y, r.r) for r in rocks
                           if math.hypot(r.x - e.x, r.y - e.y) < EMITTER_RANGE + r.r]
             field = {}
@@ -439,7 +439,7 @@ class RadiationField:
                         if n:
                             raw *= rock_shade ** n
                     if near:
-                        n = self._count_blockers(e, px, py, near)
+                        n = self._count_blockers(e, px, py, near, (cx, cy))
                         if n:
                             raw *= SHADE_FACTOR ** n
                     field[(cx, cy)] = raw
@@ -463,9 +463,11 @@ class RadiationField:
         return count
 
     @staticmethod
-    def _count_blockers(e, tx, ty, offsets):
-        """Absorbers (given as offsets from the emitter) within SHADING_RADIUS
-        of the beam from the emitter to (tx, ty), excluding its ends.
+    def _count_blockers(e, tx, ty, offsets, target_key=None):
+        """Absorbers (given as (dx, dy, cell) offsets from the emitter) within
+        SHADING_RADIUS of the beam from the emitter to (tx, ty), excluding its
+        ends. Absorbers in the target cell itself don't count: they harvest
+        that cell's light rather than shading it.
 
         Tests every candidate directly rather than ray-marching through the
         spatial grid; the result is identical, since the march only ever
@@ -478,7 +480,9 @@ class RadiationField:
         inv = 1.0 / length
         lo, hi = SHADING_RADIUS, length - SHADING_RADIUS
         count = 0
-        for ox, oy in offsets:
+        for ox, oy, key in offsets:
+            if key == target_key:
+                continue
             d_from_e = (ox * dx + oy * dy) * inv * inv * length
             if not (lo < d_from_e < hi):
                 continue

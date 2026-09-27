@@ -17,7 +17,7 @@ predators spare their own young. Everything is heritable and mutates.
 - `pygame` 2.6 (only for the GUI; the model in `simcore.py` is pure Python)
 
 ```sh
-pip install pygame
+pip install -r requirements.txt
 ```
 
 ## Run
@@ -92,8 +92,8 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 138 fast tests (unit, integration, functional, and a headless
-pygame GUI test), and they take about 37s. The GUI tests use SDL's dummy video
+There are 139 fast tests (unit, integration, functional, and a headless
+pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
 A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
@@ -101,6 +101,13 @@ balance:
 
 ```sh
 AIL_SLOW=1 python3 -m unittest tests.test_soak
+```
+
+For a quick run (about 13s) that skips the slower functional tests (about 30s of the
+total), set `AIL_QUICK=1`:
+
+```sh
+AIL_QUICK=1 python3 -m unittest
 ```
 
 To probe balance directly, or to try other rules, use the soak tool:
@@ -137,5 +144,5 @@ open runs/seed42.html
 - [TODO.md](TODO.md): open questions and next steps, including performance
   and GPU notes.
 
-`simulator_simple.py`, `simulator_visual.py` and `simulator_text.py` are
-earlier standalone prototypes that don't use `simcore`.
+`legacy/` holds earlier standalone prototypes (`simulator_simple.py`,
+`simulator_visual.py`, `simulator_text.py`) that don't use `simcore`.

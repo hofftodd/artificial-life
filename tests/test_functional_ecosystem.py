@@ -1,10 +1,12 @@
 import math
+import os
 import unittest
 
 from simcore import MAX_POPULATION, OPTIMAL_DISTANCE, Organism, World
 from tests.helpers import make_gene, single_emitter_world
 
 
+@unittest.skipIf(os.environ.get("AIL_QUICK") == "1", "AIL_QUICK=1 skips functional tests")
 class TestEcosystem(unittest.TestCase):
     def test_survives_and_reproduces(self):
         w = World(900, 600, seed=42)

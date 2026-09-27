@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import math  # noqa: E402
 
-from simcore import GROUP_RADIUS, OPTIMAL_DISTANCE, STRATEGIES, Rules, World  # noqa: E402
+from simcore import (GROUP_RADIUS, MAX_POPULATION, OPTIMAL_DISTANCE, STRATEGIES,  # noqa: E402
+                     Rules, World)
 
 
 def clumping(world, organisms):
@@ -40,8 +41,11 @@ def ring_offset(world, o):
     d = min(math.hypot(o.x - e.x, o.y - e.y) for e in world.emitters)
     return abs(d - OPTIMAL_DISTANCE)
 
-# acceptance target for "stable coexistence" (see DESIGN.md)
-TARGET_POPULATION = (80, 350)
+# acceptance target for "stable coexistence" (see DESIGN.md). The ceiling
+# guards against running into the hard population cap: at most 80% of
+# MAX_POPULATION (600). It was 350 when populations were ~150; foraging and the
+# self-shading fix legitimately raised carrying capacity.
+TARGET_POPULATION = (80, int(0.8 * MAX_POPULATION))
 TARGET_HUNTER_FRACTION = (0.03, 0.15)
 TARGET_ABSORBER_FRACTION = 0.60
 TARGET_SEEDS_WITH_ALL = 5 / 6

@@ -30,8 +30,9 @@
 ## Model
 
 - [x] **Predators too rare** (fixed by foraging and grazing: about 7–10% now,
-  alive on all seeds). Remaining: one of 12 seeds overshoots the 350
-  population ceiling, and parasites run about 22% under `Rules.dynamic()`.
+  alive on all seeds). Remaining: on 12 seeds, seed 4 ends at 489, just over
+  the ceiling of 80% of the population cap (480), and parasites run about 22%
+  under `Rules.dynamic()`.
 - [ ] **Boom/bust preset.** Add a `Rules` preset (e.g. `Rules.cycles()`) that
   gives predator–prey oscillations, and a soak metric for cycle period and
   amplitude (the CV columns are a start).
@@ -51,10 +52,8 @@
 - [ ] **Recheck spectral adaptation in the full ecosystem.** It's now
   plausible with light competition in place; consider restoring an
   ecosystem-level test.
-- [ ] **Stop absorbers shading their own cell.** Shading is traced to the cell
-  centre, so an absorber sitting nearer the emitter than its cell's centre
-  shades its own cell. Verified 0.6× on itself. Fix by skipping blockers inside
-  the target cell.
+- [x] **Absorbers no longer shade their own cell.** Blockers inside the
+  target cell are skipped; a regression test covers it.
 - [ ] **Model mixed strategies.** Strategy is still categorical for
   behaviour and shading; only the abilities are continuous. Consider
   probabilistic behaviour for generalists.
@@ -78,10 +77,8 @@
 
 ## Code / project hygiene
 
-- [ ] Delete, or move to `legacy/`, `simulator_simple.py`,
-  `simulator_visual.py` and `simulator_text.py`.
-- [ ] Add `requirements.txt` / `pyproject.toml` (pygame 2.6.1; Python 3.14
-  tested).
+- [x] Moved the old prototypes to `legacy/`.
+- [x] Added `requirements.txt` (pygame 2.6.1; Python 3.14 tested).
 - [x] Initialise git.
 - [ ] Remove `_fix_pygame_font()` once pygame ships a Python 3.14 fix.
 
@@ -103,9 +100,9 @@
 
 ## Tests
 
-- [ ] Mark the slow functional tests (about 30s) so a quick run can skip them
-  (the soak tier already uses `AIL_SLOW=1`).
-- [ ] Add a regression test for self-shading once it's fixed.
+- [x] `AIL_QUICK=1` skips the slow functional tests (the soak tier uses
+  `AIL_SLOW=1`).
+- [x] Regression test for self-shading.
 
 ## GPU note
 

@@ -12,7 +12,8 @@ against each other rather than maximising all of them.
 |---|---|
 | `simcore.py` | The model. Pure Python, no rendering, deterministic per seed. |
 | `simulator.py` | Pygame front-end: setup dialog, rendering, event effects, inspector. |
-| `simulator_simple.py`, `simulator_visual.py`, `simulator_text.py` | Earlier self-contained prototypes. They don't use `simcore` and are kept for reference only. |
+| `legacy/` | Earlier self-contained prototypes (`simulator_simple.py`, `simulator_visual.py`, `simulator_text.py`). They don't use `simcore` and are kept for reference only. |
+| `requirements.txt` | `pygame` for the GUI; the model and tools need only the standard library. |
 | `tests/` | `unittest` suite covering unit → integration → functional → headless GUI, plus an opt-in slow soak tier. |
 | `tools/soak.py` | Multi-seed ecosystem probe: strategy balance, deaths, kin kills, target check. |
 | `tools/evolve.py`, `tools/report_template.html` | Headless single run that writes an HTML evolution report, and optionally a lineage file and checkpoint. |
@@ -147,7 +148,8 @@ found it unnecessary once absorbers move.
 With `steal_rate` lowered to 0.05, the default world meets the stable
 coexistence target on the 6 standard seeds. On 12 seeds × 3000 ticks, all
 strategies survive on all 12, and the only miss is one seed ending at 353
-against the 350 ceiling. `Rules.dynamic()` improved too: populations went
+against the (then) 350 ceiling. After the self-shading fix, the ceiling is
+80% of the cap, and seed 4 misses it at 489 of 480. `Rules.dynamic()` improved too: populations went
 from 27–212 to 70–340, and all strategies survive on 6/6 seeds; parasites
 run high there (about 22%).
 
@@ -459,8 +461,9 @@ that depth, evolution shows up in the report:
 | Soak (opt-in) | `test_soak.py` | 12 seeds × 3000 ticks: no collapse, absorbers dominate, no incidental kin cannibalism, parasites persist; the full coexistence target is an expected failure |
 
 Run the suite with `python3 -m unittest` from the repo root. It takes about
-37s, most of it in the functional tests. The soak tier is skipped unless
-`AIL_SLOW=1` is set, and then adds about a minute.
+45s, most of it in the functional tests. The soak tier is skipped unless
+`AIL_SLOW=1` is set, and then adds about a minute. `AIL_QUICK=1` skips the
+functional tests for a fast inner loop.
 
 ### Balance target and `tools/soak.py`
 
@@ -473,7 +476,9 @@ It prints per-seed final counts, mean strategy fractions and coefficients of
 variation over the last third of the run, plus kills, and checks the
 **stable coexistence** target:
 
-- population 80–350 at the end
+- population between 80 and 80% of `MAX_POPULATION` (480) at the end. It
+  was 350 until foraging and the self-shading fix raised carrying capacity;
+  the ceiling exists to catch populations running into the hard cap.
 - all three strategies alive on at least 5/6 of seeds
 - mean parasite and predator fractions each 3–15%
 - absorbers at least 60%

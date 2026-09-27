@@ -42,9 +42,9 @@ class TestSoak(unittest.TestCase):
     @unittest.expectedFailure
     def test_stable_coexistence_target(self):
         # With foraging and grazing, all strategies survive on all 12 seeds
-        # (predators ~10%); the only miss is one seed ending a few organisms
-        # over the 350 population ceiling (see TODO.md). Remove the decorator
-        # once tools/soak.py reports "target: MET" on these seeds.
+        # (predators ~10%); the only miss is seed 4 ending at 489, just over
+        # the ceiling of 80% of MAX_POPULATION (480) (see TODO.md). Remove the
+        # decorator once tools/soak.py reports "target: MET" on these seeds.
         ok, reasons = meets_target(self.runs)
         self.assertTrue(ok, "; ".join(reasons))
 
