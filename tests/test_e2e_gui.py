@@ -112,7 +112,8 @@ class TestGuiEndToEnd(unittest.TestCase):
         w = self.app.world
         self.assertEqual(self.app.mode, "run")
         self.assertEqual((w.width, w.height), (700, 500))
-        self.assertEqual(self.app.screen.get_size(), (700, 500))
+        # the window is the world plus the side pane
+        self.assertEqual(self.app.screen.get_size(), simulator.window_size(700, 500))
         self.assertEqual(len(w.emitters), 1)
         self.assertEqual(len(w.organisms), 60)
         strategies = {o.strategy for o in w.organisms}

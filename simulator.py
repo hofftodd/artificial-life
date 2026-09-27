@@ -47,7 +47,12 @@ DEATH_COLORS = {
     "old age": (235, 235, 245),
 }
 EFFECT_FRAMES = {"steal": 8, "eat": 24, "death": 30}
+PANE_W = 300                 # side pane for stats, legend and inspector
+PANE_MIN_H = 600
+PANE_BG = (16, 17, 28)
+PANE_EDGE = (55, 57, 80)
 ROCK_FILL = (62, 58, 54)
+CARCASS_COLOR = (150, 110, 70)
 ROCK_RIM = (104, 98, 90)
 MAX_PIPS = 6
 
@@ -137,6 +142,12 @@ class FieldLayer:
                     pygame.draw.rect(self.surf, (*color, alpha),
                                      (cx * FIELD_CELL, cy * FIELD_CELL, FIELD_CELL, FIELD_CELL))
             screen.blit(self.surf, (0, 0))
+
+
+def draw_carcasses(screen, world):
+    for c in world.carcasses:
+        r = 1 + int(min(4, c.energy))
+        pygame.draw.circle(screen, CARCASS_COLOR, (int(c.x), int(c.y)), r)
 
 
 def draw_rocks(screen, world):
@@ -260,38 +271,61 @@ def budget_bar(screen, x, y, w, h, shares):
         x += seg
 
 
-def draw_hud(screen, fonts, world, paused, show_legend):
+def pane_rect(world):
+    """The side pane to the right of the world view."""
+    return pygame.Rect(world.width, 0, PANE_W, max(world.height, PANE_MIN_H))
+
+
+def draw_pane(screen, fonts, world, paused, show_legend, selected):
+    """Everything that isn't the world itself: stats, then the inspector (when
+    an organism is selected) or the legend, then the key help."""
+    font, big, small = fonts
+    rect = pane_rect(world)
+    pygame.draw.rect(screen, PANE_BG, rect)
+    pygame.draw.line(screen, PANE_EDGE, rect.topleft, rect.bottomleft, 1)
+    x = rect.x + 14
+    y = draw_hud(screen, fonts, world, paused, x, 10)
+    y += 10
+    pygame.draw.line(screen, PANE_EDGE, (x, y), (rect.right - 14, y), 1)
+    y += 10
+    if selected is not None:
+        draw_inspector(screen, fonts, world, selected, x, y)
+    elif show_legend and small is not None:
+        draw_legend(screen, small, x, y)
+    if small is not None:
+        for i, text in enumerate(("SPACE start/stop   R new simulation",
+                                  "click: inspect   H legend   ESC quit")):
+            screen.blit(small.render(text, True, DIM_TEXT), (x, rect.bottom - 36 + 16 * i))
+
+
+def draw_hud(screen, fonts, world, paused, x, y):
+    """Generation, population and per-strategy stats. Returns the bottom y."""
     font, big, small = fonts
     if big is not None:
-        screen.blit(big.render("generation %d" % world.generation, True, (240, 240, 250)), (10, 8))
+        screen.blit(big.render("generation %d" % world.generation, True, (240, 240, 250)), (x, y))
+        y += 32
     if font is not None:
         stats = strategy_stats(world)
-        y = 42
-        screen.blit(font.render("population %d   tick %d   %s" % (
-            len(world.organisms), world.tick, "STOPPED" if paused else "RUNNING"),
-            True, TEXT), (10, y))
-        y += 22
+        state = "STOPPED" if paused else "RUNNING"
+        screen.blit(font.render("population %d   tick %d" % (len(world.organisms), world.tick),
+                                True, TEXT), (x, y))
+        y += 20
+        screen.blit(font.render(state, True, (255, 200, 80) if paused else DIM_TEXT), (x, y))
+        y += 24
         for k in STRATEGIES:
             s = stats[k]
             n = s["n"]
-            line = "%-9s %3d" % (STRATEGY_PLURALS[k], n)
-            if n:
-                line += "   energy %.1f   offspring %.1f (best %d)" % (
-                    s["energy"] / n, s["children"] / n, s["best"])
-            screen.blit(font.render(line, True, STRATEGY_COLORS[k]), (10, y))
-            y += 20
-    if small is not None:
-        screen.blit(small.render(
-            "SPACE start/stop   R new simulation   click: inspect   H legend   ESC quit",
-            True, DIM_TEXT), (10, world.height - 22))
-        if show_legend:
-            draw_legend(screen, small, world)
+            screen.blit(font.render("%s %d" % (STRATEGY_PLURALS[k], n), True,
+                                    STRATEGY_COLORS[k]), (x, y))
+            y += 18
+            if n and small is not None:
+                screen.blit(small.render("energy %.1f   offspring %.1f (best %d)" % (
+                    s["energy"] / n, s["children"] / n, s["best"]), True, TEXT), (x + 10, y))
+                y += 16
+    return y
 
 
-def draw_legend(screen, small, world):
-    rect = pygame.Rect(world.width - 280, 10, 270, 280)
-    panel(screen, rect, 130)
-    x0, y0 = rect.x + 12, rect.y + 12
+def draw_legend(screen, small, x0, y0):
     for i in range(12):
         pygame.draw.rect(screen, spectrum_color(1 + i * 8), (x0 + i * 12, y0, 12, 10))
     screen.blit(small.render("spectrum 1", True, TEXT), (x0, y0 + 14))
@@ -329,12 +363,12 @@ def draw_legend(screen, small, world):
     pygame.draw.circle(screen, ROCK_FILL, (x0 + 6, y0 + 5), 6)
     pygame.draw.circle(screen, ROCK_RIM, (x0 + 6, y0 + 5), 6, 1)
     row("rock: shade and cover from hunters")
+    pygame.draw.circle(screen, CARCASS_COLOR, (x0 + 6, y0 + 5), 3)
+    row("carcass: food for scavengers")
 
 
-def draw_inspector(screen, fonts, world, o, show_legend):
-    font, _big, small = fonts
-    if small is None or font is None:
-        return
+def draw_selection(screen, world, o):
+    """In-world marks for the inspected organism: a ring, and outlines on kin."""
     for other in world.organisms:
         if other is not o and o.is_kin(other):
             pygame.draw.circle(screen, (200, 200, 220), (int(other.x), int(other.y)),
@@ -342,10 +376,11 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     pygame.draw.circle(screen, (255, 255, 255), (int(o.x), int(o.y)),
                        int(organism_radius(o)) + 6, 2)
 
-    top = 300 if show_legend else 10
-    rect = pygame.Rect(world.width - 280, top, 270, 263)
-    panel(screen, rect, 170)
-    x, y = rect.x + 12, rect.y + 10
+
+def draw_inspector(screen, fonts, world, o, x, y):
+    font, _big, small = fonts
+    if small is None or font is None:
+        return
     g = o.genes
     screen.blit(font.render("#%d  %s  (gen %d)" % (o.uid, o.strategy, o.generation),
                             True, STRATEGY_COLORS[o.strategy]), (x, y))
@@ -372,11 +407,11 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     line("spectrum %d   speed %.2f" % (g.absorption_spectrum, g.speed))
     line("sensing: radiation %.1f   organisms %.1f" % (g.radiation_sensing, g.organism_sensing))
     line("kin affinity %.2f   spares young %d ticks" % (g.kin_affinity, g.offspring_protection))
-    line("cover affinity %.2f" % g.cover_affinity)
+    line("cover affinity %.2f   dispersal %.2f" % (g.cover_affinity, g.dispersal))
     line("armour %.2f  bite %.2f  camo %.2f  percep %.2f" % (
         g.armor, g.bite, g.camouflage, g.perception))
     line("marker %.1f%s" % (g.marker, "   (sexual birth)" if o.mate_uid else ""))
-    line("outlined: same family")
+    line("outlined: relatives   click empty space to close")
 
 
 class SetupDialog:
@@ -506,9 +541,12 @@ class SimulationApp:
             self.settings.update(settings)
         self._seed = seed
         info = pygame.display.Info()
-        self.max_width = info.current_w - 40 if info.current_w and info.current_w > 0 else 1800
+        # leave room for the side pane, but never offer less than 900px of world
+        screen_w = info.current_w - 40 if info.current_w and info.current_w > 0 else 2100
+        self.max_width = max(900, screen_w - PANE_W)
         self.max_height = info.current_h - 80 if info.current_h and info.current_h > 0 else 1100
-        self.screen = pygame.display.set_mode((self.settings["width"], self.settings["height"]))
+        self.screen = pygame.display.set_mode(
+            window_size(self.settings["width"], self.settings["height"]))
         pygame.display.set_caption("Artificial Life Simulator")
         self.clock = pygame.time.Clock()
         self.font, self.big, self.small = self._make_fonts()
@@ -549,7 +587,7 @@ class SimulationApp:
     def reset(self):
         """Start a fresh world from the current settings."""
         st = self.settings
-        size = (st["width"], st["height"])
+        size = window_size(st["width"], st["height"])
         if self.screen.get_size() != size:
             self.screen = pygame.display.set_mode(size)
         mix = {k: st[k] for k in STRATEGIES}
@@ -569,6 +607,8 @@ class SimulationApp:
         self.dialog = None
 
     def select_at(self, pos):
+        if pos[0] >= self.world.width:
+            return                     # clicks in the side pane
         best, best_d = None, 14
         for o in self.world.organisms:
             d = math.hypot(o.x - pos[0], o.y - pos[1])
@@ -618,17 +658,15 @@ class SimulationApp:
             self.field_layer.draw(self.screen, self.world)
             draw_emitters(self.screen, self.world, self.font, pygame.time.get_ticks() / 1000.0)
             draw_rocks(self.screen, self.world)
+            draw_carcasses(self.screen, self.world)
             draw_emitter_labels(self.screen, self.world, self.font)
             for o in self.world.organisms:
                 draw_organism(self.screen, o)
             self.effects.draw(self.screen)
-            draw_hud(self.screen, self.fonts, self.world, self.paused, self.show_legend)
             if self.selected is not None:
-                draw_inspector(self.screen, self.fonts, self.world, self.selected,
-                               self.show_legend)
-            if self.paused and self.big is not None and self.dialog is None:
-                img = self.big.render("STOPPED", True, (255, 200, 80))
-                self.screen.blit(img, ((self.screen.get_width() - img.get_width()) // 2, 60))
+                draw_selection(self.screen, self.world, self.selected)
+            draw_pane(self.screen, self.fonts, self.world, self.paused, self.show_legend,
+                      self.selected)
         if self.dialog is not None:
             self.dialog.draw(self.screen, self.fonts)
         pygame.display.flip()
@@ -648,6 +686,11 @@ class SimulationApp:
             if max_frames is not None and frames >= max_frames:
                 break
         return frames
+
+
+def window_size(width, height):
+    """The world view plus the side pane."""
+    return width + PANE_W, max(height, PANE_MIN_H)
 
 
 def run(max_frames=None, seed=None, width=WIDTH, height=HEIGHT, setup=None):
