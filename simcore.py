@@ -56,6 +56,13 @@ STRATEGIES = ("absorber", "parasite", "predator")
 KIN_SPACING = 10             # communal organisms stop approaching kin this close
 PROTECTION_MAX = 800         # upper bound on offspring_protection (ticks)
 
+# --- environment (see Rules; all off by default) ---
+ROCK_RADIUS = (12, 30)       # rock radius range, px
+ROCK_SHADE = 0.1             # light multiplier per rock a beam passes through
+COVER_RANGE = 8.0            # within this of a rock's edge an organism is in cover
+HIDDEN_DETECT = 20.0         # hunters only spot organisms in cover this close
+EMITTER_MARGIN = 60          # emitters stay this far from the world edges
+
 # --- shading ---
 SHADE_FACTOR = 0.6
 SHADING_RADIUS = 7
@@ -95,6 +102,34 @@ class Rules:
     # Generation time tracks the mean age of parents, so shorter lives are the
     # main lever for more generations per tick.
     lifespan: tuple = LIFESPAN
+    # environment dynamics: emitters random-walk their spectrum (sd per tick)
+    # and position (px sd per tick), and pulse seasonally, dipping to
+    # (1 - pulse_depth) of full output once per pulse_period ticks
+    spectrum_drift: float = 0.0
+    emitter_drift: float = 0.0
+    pulse_period: int = 0
+    pulse_depth: float = 0.0
+    # rocks: solid circles that cast shadows (light x rock_shade per rock on
+    # the beam) and give cover: organisms within cover_range of a rock's edge
+    # can only be spotted by hunters within hidden_detect
+    num_rocks: int = 0
+    rock_radius: tuple = ROCK_RADIUS
+    rock_shade: float = ROCK_SHADE
+    cover_range: float = COVER_RANGE
+    hidden_detect: float = HIDDEN_DETECT
+
+    @classmethod
+    def dynamic(cls, **overrides):
+        """A changing environment: seasons, drifting emitters and rocks.
+
+        Off by default because it makes the small default world volatile
+        (populations swing harder and a bad season can wipe out a seed; see
+        DESIGN.md), which is the point for evolution experiments but not for
+        the balance baseline."""
+        values = dict(pulse_period=1500, pulse_depth=0.3, spectrum_drift=0.05,
+                      emitter_drift=0.1, num_rocks=8)
+        values.update(overrides)
+        return cls(**values)
 
     def __post_init__(self):
         if self.kin_immunity not in KIN_IMMUNITY:
@@ -105,6 +140,10 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if not 0 <= self.pulse_depth <= 1:
+            raise ValueError("pulse_depth must be in [0, 1]")
+        if not 0 <= self.rock_shade <= 1:
+            raise ValueError("rock_shade must be in [0, 1]")
 
 
 def clamp(v, lo, hi):
@@ -132,7 +171,7 @@ class Gene:
 
     def __init__(self, absorption_spectrum, absorption, parasitism, predation,
                  movement_ability, radiation_sensing, organism_sensing,
-                 kin_affinity=0.0, offspring_protection=0):
+                 kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -147,6 +186,9 @@ class Gene:
         self.kin_affinity = kin_affinity
         # ticks during which a predator won't eat its own children
         self.offspring_protection = offspring_protection
+        # pull toward the nearest rock: cover from hunters, at the cost of
+        # the rock's shadow
+        self.cover_affinity = cover_affinity
 
     @classmethod
     def random(cls, rng):
@@ -160,6 +202,7 @@ class Gene:
             rng.uniform(0.5, 2.0),
             rng.uniform(0.0, 0.5),
             rng.randint(0, PROTECTION_MAX // 2),
+            rng.uniform(0.0, 0.5),
         )
 
     @classmethod
@@ -189,6 +232,7 @@ class Gene:
             clamp(self.organism_sensing + rng.gauss(0, 0.1), 0.3, 3.0),
             clamp(self.kin_affinity + rng.gauss(0, 0.08), 0.0, 1.0),
             int(clamp(self.offspring_protection + rng.gauss(0, 40), 0, PROTECTION_MAX)),
+            clamp(self.cover_affinity + rng.gauss(0, 0.08), 0.0, 1.0),
         )
 
     @property
@@ -226,7 +270,38 @@ class Gene:
             self.organism_sensing,
             self.kin_affinity,
             self.offspring_protection,
+            self.cover_affinity,
         )
+
+
+class Rock:
+    """A solid circle: casts a shadow, can't be entered, gives cover."""
+
+    def __init__(self, x, y, r):
+        self.x = float(x)
+        self.y = float(y)
+        self.r = float(r)
+
+
+def push_out(x, y, rocks, margin=0.0):
+    """Move a point that ended up inside a rock to just outside its edge."""
+    for rock in rocks:
+        dx, dy = x - rock.x, y - rock.y
+        d = math.hypot(dx, dy)
+        limit = rock.r + margin
+        if d < limit:
+            if d < 1e-9:
+                dx, dy, d = 1.0, 0.0, 1.0
+            x = rock.x + dx / d * limit
+            y = rock.y + dy / d * limit
+    return x, y
+
+
+def in_cover(x, y, rocks, cover_range):
+    for rock in rocks:
+        if math.hypot(x - rock.x, y - rock.y) - rock.r <= cover_range:
+            return True
+    return False
 
 
 class Emitter:
@@ -235,12 +310,32 @@ class Emitter:
         self.y = float(y)
         self.spectrum = spectrum if spectrum is not None else rng.randint(1, 100)
         self.phase = rng.uniform(0, math.pi * 2)
+        self.strength = 1.0      # seasonal output multiplier (see advance)
 
     def radiation_at(self, x, y):
         d = math.hypot(x - self.x, y - self.y)
         if d < EMITTER_RANGE:
-            return RADIATION_ENERGY * (1.0 - d / EMITTER_RANGE)
+            return RADIATION_ENERGY * (1.0 - d / EMITTER_RANGE) * self.strength
         return 0.0
+
+    def apply_season(self, rules, tick):
+        if rules.pulse_period and rules.pulse_depth:
+            season = 0.5 - 0.5 * math.cos(2 * math.pi * tick / rules.pulse_period + self.phase)
+            self.strength = 1.0 - rules.pulse_depth * season
+
+    def advance(self, world):
+        """Apply one tick of the world's emitter dynamics (pulse, drift)."""
+        rules = world.rules
+        self.apply_season(rules, world.tick)
+        if rules.spectrum_drift:
+            self.spectrum = clamp(self.spectrum + world.rng.gauss(0, rules.spectrum_drift),
+                                  1, 100)
+        if rules.emitter_drift:
+            x = self.x + world.rng.gauss(0, rules.emitter_drift)
+            y = self.y + world.rng.gauss(0, rules.emitter_drift)
+            x, y = push_out(x, y, world.rocks, margin=5)
+            self.x = clamp(x, EMITTER_MARGIN, world.width - EMITTER_MARGIN)
+            self.y = clamp(y, EMITTER_MARGIN, world.height - EMITTER_MARGIN)
 
 
 class SpatialGrid:
@@ -273,7 +368,8 @@ class SpatialGrid:
 class RadiationField:
     """Precomputed, shading-aware radiation intensity per field cell, per emitter."""
 
-    def __init__(self, width, height, emitters, organisms, grid):
+    def __init__(self, width, height, emitters, organisms, grid, rocks=(),
+                 rock_shade=ROCK_SHADE):
         self.cells_x = max(1, width // FIELD_CELL)
         self.cells_y = max(1, height // FIELD_CELL)
         self.by_emitter = []
@@ -294,6 +390,8 @@ class RadiationField:
                 ox, oy = o.x - e.x, o.y - e.y
                 if abs(ox) <= reach and abs(oy) <= reach:
                     near.append((ox, oy))
+            near_rocks = [(r.x - e.x, r.y - e.y, r.r) for r in rocks
+                          if math.hypot(r.x - e.x, r.y - e.y) < EMITTER_RANGE + r.r]
             field = {}
             x0 = max(0, int((e.x - EMITTER_RANGE) // FIELD_CELL))
             x1 = min(self.cells_x - 1, int((e.x + EMITTER_RANGE) // FIELD_CELL))
@@ -306,12 +404,35 @@ class RadiationField:
                     raw = e.radiation_at(px, py)
                     if raw <= 0:
                         continue
+                    if near_rocks:
+                        n = self._count_rocks(e, px, py, near_rocks)
+                        if n < 0:
+                            continue      # the cell centre is inside a rock
+                        if n:
+                            raw *= rock_shade ** n
                     if near:
                         n = self._count_blockers(e, px, py, near)
                         if n:
                             raw *= SHADE_FACTOR ** n
                     field[(cx, cy)] = raw
             self.by_emitter.append(field)
+
+    @staticmethod
+    def _count_rocks(e, tx, ty, rocks):
+        """Rocks the beam from the emitter to (tx, ty) passes through, or -1
+        if (tx, ty) is itself inside a rock. Rocks are (dx, dy, r) offsets
+        from the emitter."""
+        dx, dy = tx - e.x, ty - e.y
+        len2 = dx * dx + dy * dy
+        count = 0
+        for rx, ry, r in rocks:
+            if (rx - dx) ** 2 + (ry - dy) ** 2 < r * r:
+                return -1
+            t = (rx * dx + ry * dy) / len2 if len2 else 0.0
+            t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+            if (rx - dx * t) ** 2 + (ry - dy * t) ** 2 < r * r:
+                count += 1
+        return count
 
     @staticmethod
     def _count_blockers(e, tx, ty, offsets):
@@ -444,8 +565,20 @@ class Organism:
     def _victim_filter(self, world):
         if self.strategy == "predator":
             # only chase what could actually be eaten on arrival
-            return lambda o: self.can_eat(o, world)
-        return lambda o: o.strategy != "parasite"
+            base = lambda o: self.can_eat(o, world)  # noqa: E731
+        else:
+            base = lambda o: o.strategy != "parasite"  # noqa: E731
+        if not world.rocks:
+            return base
+        rules = world.rules
+
+        def visible(o):
+            # organisms in cover can only be spotted up close
+            if (math.hypot(o.x - self.x, o.y - self.y) > rules.hidden_detect
+                    and in_cover(o.x, o.y, world.rocks, rules.cover_range)):
+                return False
+            return base(o)
+        return visible
 
     def _emitter_target(self, world):
         best_e, best_d = None, self.genes.radiation_sensing * 200
@@ -488,6 +621,18 @@ class Organism:
                 if d > KIN_SPACING:
                     vx += self.genes.kin_affinity * (kin.x - self.x) / d
                     vy += self.genes.kin_affinity * (kin.y - self.y) / d
+        # cover seekers drift toward the nearest sensed rock until they're
+        # within cover range of its edge
+        if self.genes.cover_affinity > 0.05 and world.rocks:
+            rock, gap = None, sense
+            for k in world.rocks:
+                g = math.hypot(k.x - self.x, k.y - self.y) - k.r
+                if g < gap:
+                    rock, gap = k, g
+            if rock is not None and gap > COVER_RANGE / 2:
+                d = gap + rock.r
+                vx += self.genes.cover_affinity * (rock.x - self.x) / d
+                vy += self.genes.cover_affinity * (rock.y - self.y) / d
 
         if vx or vy:
             self.direction = math.atan2(vy, vx)
@@ -496,8 +641,11 @@ class Organism:
         else:
             self.direction += world.rng.gauss(0, 0.4)
         speed = self.genes.speed
-        self.x = clamp(self.x + math.cos(self.direction) * speed, 5, world.width - 5)
-        self.y = clamp(self.y + math.sin(self.direction) * speed, 5, world.height - 5)
+        x = clamp(self.x + math.cos(self.direction) * speed, 5, world.width - 5)
+        y = clamp(self.y + math.sin(self.direction) * speed, 5, world.height - 5)
+        if world.rocks:
+            x, y = push_out(x, y, world.rocks)
+        self.x, self.y = x, y
 
     def _steal(self, world):
         s = self.genes.stealing_ability
@@ -549,6 +697,8 @@ class Organism:
             dist = world.rng.uniform(2, 12)
             nx = clamp(self.x + math.cos(angle) * dist, 5, world.width - 5)
             ny = clamp(self.y + math.sin(angle) * dist, 5, world.height - 5)
+            if world.rocks:
+                nx, ny = push_out(nx, ny, world.rocks)
             child = Organism(nx, ny, world.rng,
                              self.genes.mutated(world.rng, world.strategy_mutation),
                              self.generation + 1, parent=self)
@@ -624,18 +774,23 @@ class World:
                     self.rng.randint(60, self.height - 60), self.rng)
             for _ in range(num_emitters)
         ]
+        self.rocks = self._place_rocks()
+        for e in self.emitters:
+            e.apply_season(self.rules, 0)
         self.organisms = [
             Organism(self.rng.randint(30, self.width - 30),
                      self.rng.randint(30, self.height - 30), self.rng,
                      self._founder_genes(strategy_mix))
             for _ in range(start_population)
         ]
+        if self.rocks:
+            for o in self.organisms:
+                o.x, o.y = push_out(o.x, o.y, self.rocks)
         self.grid = SpatialGrid()
         self.total_births = 0
         self.tick = 0
         self.events = []
-        self.field = RadiationField(self.width, self.height, self.emitters,
-                                    self.organisms, self.grid)
+        self.field = self._build_field()
         if self.rules.lifespan is not None:
             for o in self.organisms:
                 o.max_age = self.rng.randint(*self.rules.lifespan)
@@ -643,6 +798,25 @@ class World:
         if record_lineage:
             for o in self.organisms:
                 self.record_birth(o)
+
+    def _place_rocks(self):
+        """Scatter rules.num_rocks rocks, clear of the emitters and each other."""
+        rocks = []
+        lo, hi = self.rules.rock_radius
+        for _ in range(self.rules.num_rocks):
+            for _attempt in range(50):
+                r = self.rng.uniform(lo, hi)
+                x = self.rng.uniform(r + 10, max(r + 10, self.width - r - 10))
+                y = self.rng.uniform(r + 10, max(r + 10, self.height - r - 10))
+                if all(math.hypot(x - e.x, y - e.y) > r + 25 for e in self.emitters) and \
+                        all(math.hypot(x - k.x, y - k.y) > r + k.r + 4 for k in rocks):
+                    rocks.append(Rock(x, y, r))
+                    break
+        return rocks
+
+    def _build_field(self):
+        return RadiationField(self.width, self.height, self.emitters, self.organisms,
+                              self.grid, self.rocks, self.rules.rock_shade)
 
     def record_birth(self, o):
         """("birth", tick, uid, parent_uid, family, generation, genes tuple);
@@ -680,9 +854,10 @@ class World:
         ("death", x, y, cause, strategy)."""
         self.tick += 1
         self.events = []
+        for e in self.emitters:
+            e.advance(self)
         self.grid.build(self.organisms)
-        self.field = RadiationField(self.width, self.height, self.emitters,
-                                    self.organisms, self.grid)
+        self.field = self._build_field()
         before = len(self.organisms)
         for o in list(self.organisms):
             if not o.alive:

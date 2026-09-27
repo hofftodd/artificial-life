@@ -96,7 +96,13 @@
 - [x] Lineage recording, checkpoints, and the `tools/evolve.py` HTML report.
 - [ ] Phylogeny view from the lineage file (tree or Muller by lineage, not just
   family).
-- [ ] Drifting / pulsing emitters (Red Queen; also the route to boom/bust).
+- [x] Seasons, drifting emitters, and rocks (shade, solidity, cover, and the
+  `cover_affinity` gene), available through `Rules.dynamic()` / `--env dynamic`.
+- [ ] Tune `Rules.dynamic()` for bigger worlds (more emitters buffer bad
+  seasons), and check whether `cover_affinity` rises when predators are
+  common.
+- [ ] Let organisms track the seasonal optimal ring (evolvable ring-distance
+  gene) rather than the fixed `OPTIMAL_DISTANCE`.
 - [ ] Heritable kin marker instead of permanent founder `family`; sexual
   reproduction with assortative mating (speciation).
 - [ ] Energy-sharing gene to test Hamilton's rule.

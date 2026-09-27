@@ -38,6 +38,10 @@ class TestSoakHelpers(unittest.TestCase):
         self.assertEqual(soak.parse_mix("8:1:1"), {"absorber": 8.0, "parasite": 1.0, "predator": 1.0})
         with self.assertRaises(SystemExit):
             soak.parse_rules(["nonsense=1"])
+        dyn = soak.parse_rules(["num_rocks=3"], soak.base_rules("dynamic"))
+        self.assertEqual(dyn.num_rocks, 3)
+        self.assertGreater(dyn.pulse_depth, 0)
+        self.assertEqual(soak.parse_rules([], soak.base_rules("static")).num_rocks, 0)
 
 
 if __name__ == "__main__":

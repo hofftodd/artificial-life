@@ -44,5 +44,6 @@ def single_emitter_world(seed=1234, ex=300, ey=200, spectrum=50, width=600, heig
 def build_field(world):
     world.grid.build(world.organisms)
     world.field = RadiationField(world.width, world.height,
-                                 world.emitters, world.organisms, world.grid)
+                                 world.emitters, world.organisms, world.grid,
+                                 world.rocks, world.rules.rock_shade)
     return world.field

@@ -32,6 +32,8 @@ A setup dialog opens first. In it you choose:
 - how many organisms to start with
 - the mix of absorbers, parasites and predators
 - the world size
+- the number of rocks, and whether seasons and emitter drift are on (on by
+  default in the GUI)
 
 Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 
@@ -56,6 +58,8 @@ Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 | Red strike and burst | a predator kill |
 | Fading ring | a death: red ✕ eaten, grey starved, white old age |
 | Red / green rings round an emitter | lethal zone / optimal distance |
+| Grey discs | rocks: they shade the light behind them and hide organisms near their edge from hunters |
+| Emitter label "output 70%" | the emitter's current seasonal output |
 
 The top-left HUD shows each strategy's count, mean energy, mean offspring,
 and the best offspring count.
@@ -87,8 +91,8 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 106 fast tests (unit, integration, functional, and a headless
-pygame GUI test), and they take about 16s. The GUI tests use SDL's dummy video
+There are 127 fast tests (unit, integration, functional, and a headless
+pygame GUI test), and they take about 27s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
 A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
@@ -121,6 +125,9 @@ open runs/seed42.html
   end, and `--resume runs/s42.ckpt --ticks 5000 --out runs/s42b.html` continues
   it exactly.
 - **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
+- **Changing environment:** `--env dynamic` adds seasons, drifting emitters and
+  rocks. Rocks cast shade and give organisms cover from hunters. Tune it with
+  `--set`, e.g. `--set num_rocks=15 --set pulse_depth=0.5`.
 
 ## More
 

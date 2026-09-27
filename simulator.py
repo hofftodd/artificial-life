@@ -47,10 +47,14 @@ DEATH_COLORS = {
     "old age": (235, 235, 245),
 }
 EFFECT_FRAMES = {"steal": 8, "eat": 24, "death": 30}
+ROCK_FILL = (62, 58, 54)
+ROCK_RIM = (104, 98, 90)
 MAX_PIPS = 6
 
 DEFAULT_SETTINGS = {
     "emitters": simcore.NUM_EMITTERS,
+    "rocks": simcore.Rules.dynamic().num_rocks,
+    "dynamic": 1,
     "organisms": simcore.START_POPULATION,
     "absorber": 80,
     "parasite": 10,
@@ -133,18 +137,34 @@ class FieldLayer:
             screen.blit(self.surf, (0, 0))
 
 
+def draw_rocks(screen, world):
+    for rock in world.rocks:
+        c = (int(rock.x), int(rock.y))
+        pygame.draw.circle(screen, ROCK_FILL, c, int(rock.r))
+        pygame.draw.circle(screen, ROCK_RIM, c, int(rock.r), 2)
+
+
 def draw_emitters(screen, world, font, t):
     for i, e in enumerate(world.emitters):
         col = spectrum_color(e.spectrum)
-        pygame.draw.circle(screen, (col[0] // 6, col[1] // 6, col[2] // 6),
+        # the halo dims with the emitter's seasonal output
+        k = 6.0 / max(e.strength, 0.05)
+        pygame.draw.circle(screen, (int(col[0] / k), int(col[1] / k), int(col[2] / k)),
                            (int(e.x), int(e.y)), EMITTER_RANGE)
         pygame.draw.circle(screen, (255, 70, 70), (int(e.x), int(e.y)), int(LETHAL_DISTANCE), 1)
         pygame.draw.circle(screen, (90, 220, 120), (int(e.x), int(e.y)), int(OPTIMAL_DISTANCE), 1)
         pulse = 0.5 + 0.5 * math.sin(t * 2 + e.phase)
         pygame.draw.circle(screen, col, (int(e.x), int(e.y)), 5 + int(pulse * 6), 1)
         pygame.draw.circle(screen, (255, 255, 255), (int(e.x), int(e.y)), 4)
+
+
+def draw_emitter_labels(screen, world, font):
+    for i, e in enumerate(world.emitters):
+        col = spectrum_color(e.spectrum)
         if font is not None:
-            label = "E%d  spectrum %d" % (i + 1, e.spectrum)
+            label = "E%d  spectrum %d" % (i + 1, round(e.spectrum))
+            if e.strength < 0.995:
+                label += "  output %d%%" % round(100 * e.strength)
             img = font.render(label, True, col)
             px = clamp(int(e.x) + 10, 2, world.width - img.get_width() - 4)
             py = clamp(int(e.y) - 28, 2, world.height - img.get_height() - 4)
@@ -267,7 +287,7 @@ def draw_hud(screen, fonts, world, paused, show_legend):
 
 
 def draw_legend(screen, small, world):
-    rect = pygame.Rect(world.width - 280, 10, 270, 262)
+    rect = pygame.Rect(world.width - 280, 10, 270, 280)
     panel(screen, rect, 130)
     x0, y0 = rect.x + 12, rect.y + 12
     for i in range(12):
@@ -304,6 +324,9 @@ def draw_legend(screen, small, world):
     pygame.draw.circle(screen, (255, 70, 70), (x0 + 6, y0 + 5), 5, 1)
     pygame.draw.circle(screen, (90, 220, 120), (x0 + 6, y0 + 5), 3, 1)
     row("red/green ring: lethal / optimal")
+    pygame.draw.circle(screen, ROCK_FILL, (x0 + 6, y0 + 5), 6)
+    pygame.draw.circle(screen, ROCK_RIM, (x0 + 6, y0 + 5), 6, 1)
+    row("rock: shade and cover from hunters")
 
 
 def draw_inspector(screen, fonts, world, o, show_legend):
@@ -317,8 +340,8 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     pygame.draw.circle(screen, (255, 255, 255), (int(o.x), int(o.y)),
                        int(organism_radius(o)) + 6, 2)
 
-    top = 282 if show_legend else 10
-    rect = pygame.Rect(world.width - 280, top, 270, 212)
+    top = 300 if show_legend else 10
+    rect = pygame.Rect(world.width - 280, top, 270, 229)
     panel(screen, rect, 170)
     x, y = rect.x + 12, rect.y + 10
     g = o.genes
@@ -347,6 +370,7 @@ def draw_inspector(screen, fonts, world, o, show_legend):
     line("spectrum %d   speed %.2f" % (g.absorption_spectrum, g.speed))
     line("sensing: radiation %.1f   organisms %.1f" % (g.radiation_sensing, g.organism_sensing))
     line("kin affinity %.2f   spares young %d ticks" % (g.kin_affinity, g.offspring_protection))
+    line("cover affinity %.2f" % g.cover_affinity)
     line("outlined: same family")
 
 
@@ -359,6 +383,8 @@ class SetupDialog:
         self.values = dict(settings)
         self.fields = [
             ("emitters", "Emitters", 0, 10, 1),
+            ("rocks", "Rocks", 0, 40, 1),
+            ("dynamic", "Seasons & drift", 0, 1, 1),
             ("organisms", "Starting organisms", 0, 600, 10),
             ("absorber", "Absorbers", 0, 100, 5),
             ("parasite", "Parasites", 0, 100, 5),
@@ -438,6 +464,8 @@ class SetupDialog:
                 pygame.draw.rect(screen, (45, 45, 75), row)
             color = STRATEGY_COLORS.get(key, TEXT)
             value = str(self.values[key])
+            if key == "dynamic":
+                value = "on" if self.values[key] else "off"
             if key in STRATEGIES:
                 value = "%d%%" % round(mix[key]) if mix else "-"
             for r, sign in ((minus, "-"), (plus, "+")):
@@ -527,7 +555,9 @@ class SimulationApp:
             st["width"], st["height"], seed=self._seed,
             num_emitters=st["emitters"], start_population=st["organisms"],
             max_population=max(simcore.MAX_POPULATION, int(simcore.MAX_POPULATION * area)),
-            strategy_mix=mix)
+            strategy_mix=mix,
+            rules=(simcore.Rules.dynamic if st["dynamic"] else simcore.Rules)(
+                num_rocks=st["rocks"]))
         self.effects.clear()
         self.selected = None
         self.paused = False
@@ -582,6 +612,8 @@ class SimulationApp:
         if self.world is not None:
             self.field_layer.draw(self.screen, self.world)
             draw_emitters(self.screen, self.world, self.font, pygame.time.get_ticks() / 1000.0)
+            draw_rocks(self.screen, self.world)
+            draw_emitter_labels(self.screen, self.world, self.font)
             for o in self.world.organisms:
                 draw_organism(self.screen, o)
             self.effects.draw(self.screen)

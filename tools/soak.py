@@ -33,7 +33,12 @@ def parse_mix(text):
     return dict(zip(STRATEGIES, weights))
 
 
-def parse_rules(pairs):
+def base_rules(env):
+    return Rules.dynamic() if env == "dynamic" else Rules()
+
+
+def parse_rules(pairs, base=None):
+    """Apply RULE=VALUE overrides on top of `base` (default Rules())."""
     fields = {f.name: f.type for f in dataclasses.fields(Rules)}
     overrides = {}
     for pair in pairs or ():
@@ -46,7 +51,7 @@ def parse_rules(pairs):
             overrides[key] = tuple(int(v) for v in value.split(","))
         else:
             overrides[key] = fields[key](value)
-    return Rules(**overrides)
+    return dataclasses.replace(base if base is not None else Rules(), **overrides)
 
 
 def soak_run(seed, ticks=3000, mix=None, rules=None, sample_every=50, width=900, height=600,
@@ -137,12 +142,14 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=3000)
     ap.add_argument("--mix", type=parse_mix, default=None)
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
+    ap.add_argument("--env", choices=("static", "dynamic"), default="static",
+                    help="dynamic = Rules.dynamic(): seasons, drift and rocks")
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)
     ap.add_argument("--emitters", type=int, default=3)
     args = ap.parse_args(argv)
-    rules = parse_rules(args.set)
+    rules = parse_rules(args.set, base_rules(args.env))
 
     runs = run_many(args.seeds, args.ticks, args.mix, rules, args.workers,
                     args.width, args.height, args.emitters)

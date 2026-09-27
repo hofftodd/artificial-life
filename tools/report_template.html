@@ -111,8 +111,12 @@ header > div:first-child { min-width: 0; }
   <p class="note">How many generations separate living organisms from the founders. Evolution needs many of these.</p>
   <div class="grid" id="generations"></div>
 
+  <h2>Environment</h2>
+  <p class="note">Each emitter's output over time. Seasons show as dips; compare them with the strategy counts above. Emitters in phase draw on top of each other; hover to see every value.</p>
+  <div class="grid" id="environment"></div>
+
   <h2>Spectrum vs. emitters</h2>
-  <p class="note">Share of the population per absorption-spectrum band over time (darker = more organisms). Ticks on the right mark each emitter's spectrum; adaptation shows as bands converging on them.</p>
+  <p class="note">Share of the population per absorption-spectrum band over time (darker = more organisms). Lines trace each emitter's spectrum; adaptation shows as the population's bands following them.</p>
   <div class="card" id="spectrumCard"></div>
 
   <h2>Families</h2>
@@ -265,7 +269,10 @@ const M = DATA.meta;
 document.getElementById("title").textContent = `Evolution run · seed ${M.seed}`;
 document.title = `Evolution run · seed ${M.seed}`;
 document.getElementById("subtitle").textContent =
-  `${M.ticks.toLocaleString()} ticks · ${M.width}×${M.height} world · ${M.emitters.length} emitters (spectra ${M.emitters.join(", ")})` +
+  `${M.ticks.toLocaleString()} ticks · ${M.width}×${M.height} world · ${M.emitters.length} emitters (final spectra ${M.emitters.join(", ")})` +
+  (M.rocks ? ` · ${M.rocks} rocks` : "") +
+  (M.rules.pulse_period && M.rules.pulse_depth ? ` · seasons every ${M.rules.pulse_period} ticks` : "") +
+  (M.rules.spectrum_drift || M.rules.emitter_drift ? " · drifting emitters" : "") +
   (M.resumed_from ? ` · resumed from ${M.resumed_from}` : "") + ` · ${M.wall_seconds}s`;
 const last = a => a[a.length - 1];
 const tiles = [
@@ -294,6 +301,12 @@ lineChart(document.getElementById("generations"), {
   title: "Generation of living organisms", legend: true, yMin: 0, height: 170, integer: true,
   series: [{name: "Median", color: "--series-1", values: DATA.generation.median},
            {name: "Max", color: "--series-2", values: DATA.generation.max}],
+});
+
+// ---------- environment ----------
+lineChart(document.getElementById("environment"), {
+  title: "Emitter output", legend: true, yMin: 0, height: 150,
+  series: DATA.emitters.map((e, k) => ({name: `E${k + 1}`, color: `--series-${k + 1}`, values: e.strength})),
 });
 
 // ---------- traits ----------
@@ -341,10 +354,12 @@ Object.entries(DATA.traits).forEach(([k, v]) => lineChart(TR, {
     });
     [1, 25, 50, 75, 100].forEach(s => el("text", {x: m.l - 6, y: Yspec(s) + 4, "text-anchor": "end"}, svg).textContent = s);
     niceTicks(x0, x1, Math.max(2, Math.floor(W / 110))).forEach(v => el("text", {x: X(v), y: H - 6, "text-anchor": "middle"}, svg).textContent = v.toLocaleString());
-    M.emitters.forEach((s, k) => {
-      const y = Yspec(s);
-      el("line", {x1: W - m.r + 2, x2: W - m.r + 12, y1: y, y2: y, stroke: css("--text-primary"), "stroke-width": 2, "stroke-linecap": "round"}, svg);
-      el("text", {x: W - m.r + 16, y: y + 4}, svg).textContent = `E${k + 1} · ${s}`;
+    DATA.emitters.forEach((e, k) => {
+      const pts = e.spectrum.map((s, i) => `${i ? "L" : "M"}${(m.l + (i + 0.5) * cw).toFixed(1)},${Yspec(s).toFixed(1)}`).join("");
+      el("path", {d: pts, fill: "none", stroke: css("--surface-1"), "stroke-width": 4, "stroke-linejoin": "round"}, svg);
+      el("path", {d: pts, fill: "none", stroke: css("--text-primary"), "stroke-width": 1.5, "stroke-linejoin": "round"}, svg);
+      const s = last(e.spectrum), y = Yspec(s);
+      el("text", {x: W - m.r + 8, y: y + 4}, svg).textContent = `E${k + 1} · ${Math.round(s)}`;
     });
     const hit = el("rect", {x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent"}, svg);
     hit.addEventListener("mousemove", evt => {

@@ -104,6 +104,8 @@ class TestGuiEndToEnd(unittest.TestCase):
         set_field("absorber", 50)
         set_field("width", 700)
         set_field("height", 500)
+        set_field("rocks", 3)
+        set_field("dynamic", 1)
         self.app.draw()
         press(pygame.K_RETURN)
 
@@ -116,6 +118,19 @@ class TestGuiEndToEnd(unittest.TestCase):
         strategies = {o.strategy for o in w.organisms}
         self.assertNotIn("predator", strategies)
         self.assertEqual(strategies, {"absorber", "parasite"})
+        self.assertEqual(len(w.rocks), 3)
+        self.assertGreater(w.rules.pulse_depth, 0)
+
+    def test_static_environment_from_dialog(self):
+        self.app.open_setup()
+        dialog = self.app.dialog
+        dialog.values.update(rocks=0, dynamic=0)
+        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+        self.app.handle_events()
+        w = self.app.world
+        self.assertEqual(w.rocks, [])
+        self.assertEqual((w.rules.pulse_depth, w.rules.spectrum_drift), (0.0, 0.0))
+        self.app.draw()
 
     def test_setup_buttons_respond_to_clicks(self):
         self.app.open_setup()

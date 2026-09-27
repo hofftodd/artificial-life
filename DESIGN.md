@@ -99,6 +99,45 @@ Live organisms whose strategy is absorber cast shade along beams traced from
 the emitter to each cell centre. Each blocker within 7px of the beam
 multiplies that cell's intensity by 0.6, and blockers compound.
 
+## Environment: seasons, drift and rocks
+
+All of this is off in `Rules()` and switched on by `Rules.dynamic()`, which
+sets: seasons every 1500 ticks at 30% depth, spectrum drift 0.05/tick,
+position drift 0.1px/tick, and 8 rocks. Tools take `--env dynamic`. The GUI
+has "Rocks" and "Seasons & drift" rows, with drift on by default there.
+
+Each tick, before the field is rebuilt, `Emitter.advance()` applies:
+
+- **Seasons:** `strength = 1 - pulse_depth × (0.5 - 0.5·cos(2π·tick/pulse_period + phase))`.
+  Output multiplies raw intensity, so a dim season also moves the danger and
+  optimal zones inward. Organisms still aim for the fixed `OPTIMAL_DISTANCE`
+  ring. Each emitter has its own random phase.
+- **Spectrum drift:** a Gaussian random walk of `spectrum_drift` per tick,
+  clamped to 1..100. This gives adaptation a moving target.
+- **Position drift:** a Gaussian random walk of `emitter_drift` px per tick,
+  kept `EMITTER_MARGIN` (60px) from the edges and out of rocks.
+
+**Rocks** (`world.rocks`, `num_rocks` of them, radius `rock_radius` 12–30px)
+are placed clear of the emitters and of each other.
+
+- **Shade:** a field cell whose beam from an emitter passes through a rock gets
+  `× rock_shade` (0.1) per rock. A cell whose centre is inside a rock gets no
+  light.
+- **Solid:** movement, births and founders are pushed out to the rock's edge.
+- **Cover:** an organism within `cover_range` (8px) of a rock's edge can only
+  be spotted by chasing hunters within `hidden_detect` (20px). Stealing and
+  eating at 12px are unaffected, so cover stops the chase, not the bite.
+- **`cover_affinity` gene:** pulls an organism toward the nearest sensed rock
+  until it's in cover, in the same way `kin_affinity` pulls toward kin. Cover
+  is safer but shadier, so selection decides whether hiding pays.
+
+**Balance impact** (6 seeds, 5000 ticks). Each factor makes the small default
+world more volatile. Pulse at 40% depth was the harshest: 4 of 6 seeds ended
+at 27–55 organisms. Drift alone nearly wiped out one seed. This is why the
+environment is opt-in, and why `Rules.dynamic()` uses a gentler 30% depth.
+A 10k-tick dynamic run (seed 42) still reached median generation 123, with
+the population's spectrum tracking the drifting emitters.
+
 ## Genome (`Gene`)
 
 ### Strategy budget
@@ -138,6 +177,7 @@ Strategy decides:
 | organism_sensing | 0.5..2.0 | 0.1 | 0.3..3.0 | victim/kin detection ×40px |
 | kin_affinity | 0..0.5 | 0.08 | 0..1 | communalism: pull toward nearest same-family organism |
 | offspring_protection | 0..400 | 40 | 0..800 | ticks a predator spares its own children |
+| cover_affinity | 0..0.5 | 0.08 | 0..1 | pull toward the nearest rock (cover from hunters, at the cost of shade) |
 
 ## Families
 
@@ -261,6 +301,10 @@ total energy never rises and the population goes extinct; a test checks this.
 - absorber / parasite / predator mix (weights shown as percentages with a
   stacked bar; all zero means fully random genomes)
 - world width and height, clamped to the desktop size
+- rocks, and "Seasons & drift" on/off (`Rules.dynamic()` when on)
+
+Rocks are drawn as grey discs. Each emitter's halo dims with its seasonal
+output, and its label shows the output % and current spectrum.
 
 Use the arrows or the +/- buttons to adjust, and Enter or Start to begin. Esc
 returns to the running world, or quits if there isn't one yet. The window is
@@ -347,6 +391,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_environment.py` | rocks (placement, solidity, shadow, cover), `cover_affinity`, seasons, drift bounds, the dynamic preset |
 | Unit | `test_unit_organism.py` | migration, lethal zone, stealing, eating, reproduction, death |
 | Integration | `test_integration_world.py` | per-tick invariants, determinism, grid, shading in a live world, extinction without energy |
 | Functional | `test_functional_ecosystem.py` | the default world persists; selection favours matched spectrum; a predator-free population converges to a carrying capacity |
@@ -354,7 +399,7 @@ that depth, evolution shows up in the report:
 | Soak (opt-in) | `test_soak.py` | 12 seeds × 3000 ticks: no collapse, absorbers dominate, no incidental kin cannibalism, parasites persist; the full coexistence target is an expected failure |
 
 Run the suite with `python3 -m unittest` from the repo root. It takes about
-16s, most of it in the functional tests. The soak tier is skipped unless
+27s, most of it in the functional tests. The soak tier is skipped unless
 `AIL_SLOW=1` is set, and then adds about a minute.
 
 ### Balance target and `tools/soak.py`

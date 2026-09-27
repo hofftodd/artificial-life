@@ -19,7 +19,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from simcore import STRATEGIES, World  # noqa: E402
-from tools.soak import parse_mix, parse_rules  # noqa: E402
+from tools.soak import base_rules, parse_mix, parse_rules  # noqa: E402
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_template.html")
 SPECTRUM_BINS = 20            # 1..100 in bins of 5
@@ -36,6 +36,7 @@ TRAITS = [
     ("radiation_sensing", "Radiation sensing", lambda o: o.genes.radiation_sensing),
     ("organism_sensing", "Organism sensing", lambda o: o.genes.organism_sensing),
     ("kin_affinity", "Kin affinity", lambda o: o.genes.kin_affinity),
+    ("cover_affinity", "Cover affinity", lambda o: o.genes.cover_affinity),
     ("offspring_protection", "Offspring protection (ticks)",
      lambda o: o.genes.offspring_protection),
 ]
@@ -71,6 +72,7 @@ class Sampler:
         self.traits = {k: {"mean": [], "p10": [], "p90": []} for k, _, _ in TRAITS}
         self.spectrum = []           # per sample: counts per bin
         self.family_counts = []      # per sample: {family: count}
+        self.emitters = [{"spectrum": [], "strength": []} for _ in world.emitters]
 
     def sample(self):
         w = self.world
@@ -96,6 +98,9 @@ class Sampler:
         for o in orgs:
             bins[min(SPECTRUM_BINS - 1, (o.genes.absorption_spectrum - 1) * SPECTRUM_BINS // 100)] += 1
         self.spectrum.append(bins)
+        for e, rec in zip(w.emitters, self.emitters):
+            rec["spectrum"].append(e.spectrum)
+            rec["strength"].append(e.strength)
         fam = {}
         for o in orgs:
             fam[o.family] = fam.get(o.family, 0) + 1
@@ -133,7 +138,8 @@ def build_report_data(world, sampler, args, wall):
     return round_floats({
         "meta": {
             "seed": w.seed, "ticks": w.tick, "width": w.width, "height": w.height,
-            "emitters": [e.spectrum for e in w.emitters],
+            "emitters": [round(e.spectrum) for e in w.emitters],
+            "rocks": len(w.rocks),
             "rules": vars(w.rules), "mix": args.mix, "wall_seconds": round(wall, 1),
             "sample_every": args.sample_every, "resumed_from": args.resume,
             "total_births": w.total_births, "deaths": deaths,
@@ -145,6 +151,7 @@ def build_report_data(world, sampler, args, wall):
         "trait_labels": {k: label for k, label, _ in TRAITS},
         "spectrum": {"bins": SPECTRUM_BINS, "counts": sampler.spectrum},
         "families": sampler.families(),
+        "emitters": sampler.emitters,
     })
 
 
@@ -165,6 +172,8 @@ def main(argv=None):
     ap.add_argument("--ticks", type=int, default=10000, help="ticks to run (after --resume)")
     ap.add_argument("--mix", type=parse_mix, default=None, help="absorber:parasite:predator")
     ap.add_argument("--set", action="append", metavar="RULE=VALUE")
+    ap.add_argument("--env", choices=("static", "dynamic"), default="static",
+                    help="dynamic = Rules.dynamic(): seasons, drift and rocks")
     ap.add_argument("--width", type=int, default=900)
     ap.add_argument("--height", type=int, default=600)
     ap.add_argument("--emitters", type=int, default=3)
@@ -176,13 +185,14 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     if args.resume:
-        if args.set or args.mix:
-            ap.error("--set/--mix can't change a resumed world")
+        if args.set or args.mix or args.env != "static":
+            ap.error("--set/--mix/--env can't change a resumed world")
         world = World.load(args.resume)
     else:
         area = args.width * args.height / (900 * 600)
         world = World(args.width, args.height, seed=args.seed, num_emitters=args.emitters,
-                      strategy_mix=args.mix, rules=parse_rules(args.set),
+                      strategy_mix=args.mix,
+                      rules=parse_rules(args.set, base_rules(args.env)),
                       max_population=max(600, int(600 * area)),
                       record_lineage=bool(args.lineage))
     sampler = Sampler(world)
