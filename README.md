@@ -7,9 +7,34 @@ strategy budget between three ways of getting energy:
 - **parasitising** (stealing energy from neighbours)
 - **predation** (eating weaker organisms)
 
-Gaining in one costs the other two, and absorbers are slow. Other genes cover
-spectrum, speed, sensing, communalism (attraction to family) and how long
-predators spare their own young. Everything is heritable and mutates.
+Gaining in one costs the other two, and absorbers are slow. There are 18
+heritable genes, plus an optional 23-weight movement controller. They cover:
+
+- spectrum, speed and sensing
+- communalism and offspring protection
+- cover-seeking
+- armour, bite, camouflage and perception (an arms race)
+- a neutral marker (for speciation)
+- dispersal, roaming and wariness
+
+Short lives and quick breeding give about 130 generations per 10,000 ticks.
+
+**The default model:**
+
+- Absorbers forage for fresh light, and harvesting drains a patch until it
+  regrows.
+- Predators and parasites hunt them, with the arms race switched on.
+
+**Presets** add more, and combine with `+` (e.g. `dynamic+open+brain`):
+
+| Preset | Adds |
+|---|---|
+| **dynamic** | seasons, drifting emitters, and rocks that shade and give cover |
+| **open** | ambient light, dispersal, roaming, patrols and fleeing, so life spreads between the emitters |
+| **speciation** | kin by marker, and sexual reproduction with assortative mating |
+| **brain** | movement from an evolved controller instead of rules |
+
+The GUI turns on dynamic and open by default.
 
 ## Requirements
 
@@ -95,6 +120,14 @@ The same seed always produces the same simulation. Pass
 `strategy_mutation=0` to keep strategies from evolving; for example, a
 predator-free world stays predator-free.
 
+Presets by name, with any rule overrides:
+
+```python
+from simcore import World, preset_rules
+
+w = World(900, 600, seed=42, rules=preset_rules("dynamic", "open", "brain", num_rocks=12))
+```
+
 ## Tests
 
 ```sh
@@ -105,15 +138,16 @@ There are 189 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
-A slower soak tier (5 more tests, about a minute) checks long-run ecosystem
-balance:
+A slower soak tier (6 more tests, a few minutes) checks long-run ecosystem
+balance. It covers the stable-coexistence target on 12 seeds, and that
+evolved controllers keep absorbers fleeing:
 
 ```sh
 AIL_SLOW=1 python3 -m unittest tests.test_soak
 ```
 
-For a quick run (about 13s) that skips the slower functional tests (about 30s of the
-total), set `AIL_QUICK=1`:
+For a quick run (about 12s) that skips the slower functional tests, set
+`AIL_QUICK=1`:
 
 ```sh
 AIL_QUICK=1 python3 -m unittest
@@ -164,10 +198,15 @@ open runs/seed42.html
 
 ## More
 
-- [DESIGN.md](DESIGN.md): how the model works (strategy budget, light
-  competition, shading, genes, tick order, UI encoding).
+- [DESIGN.md](DESIGN.md): how the model works, including the tick order,
+  light, foraging, the arms race, the open world, ranging, the evolved
+  controller, speciation, genes, `Rules` and presets, the GUI, and every
+  balance measurement behind the defaults.
 - [TODO.md](TODO.md): open questions and next steps, including performance
   and GPU notes.
+
+Generated reports, lineage files and checkpoints go in `runs/`, which git
+ignores.
 
 `legacy/` holds earlier standalone prototypes (`simulator_simple.py`,
 `simulator_visual.py`, `simulator_text.py`) that don't use `simcore`.

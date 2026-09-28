@@ -83,9 +83,10 @@
 
 - [x] Spreading out: ambient light, light tails, dispersal gene and carcasses
   (all `Rules` fields); `Rules.open_world()` / `--env open` / GUI "Open world".
-- [ ] Balance the open world for the static target (predators about 21% on 12
-  seeds). Carcasses and tails currently overfeed hunters; consider a
-  scavenger strategy or a predator cost for open-ground hunting.
+- [ ] Balance the open world without seasons. It meets the target with
+  seasons (`dynamic+open`, 12 seeds); `open` alone is fragile (1 of 6 seeds
+  went extinct). Carcasses and tails still overfeed hunters; consider a
+  scavenger strategy.
 - [x] UI: stats, legend and inspector in a side pane; the world view is clear.
 - [x] Ranging: roaming and wariness genes, patrols, parasites moving on,
   fleeing; part of the open world preset.
@@ -97,6 +98,8 @@
   strategy and express the current one.
 - [ ] Decide whether the evolved controller becomes the default; try
   from-scratch (random) founders as an experiment.
+- [ ] Brain mode's carrying capacity: over 20k ticks, evolved controllers
+  harvest well enough to sit at the 600 cap.
 - [x] Arms race: armour vs bite and camouflage vs perception, each with
   costs, on by default (`Rules.arms_race`), with an "Arms race" report
   section.
@@ -108,8 +111,9 @@
 - [ ] Tune `Rules.dynamic()` for bigger worlds (more emitters buffer bad
   seasons), and check whether `cover_affinity` rises when predators are
   common.
-- [ ] Let organisms track the seasonal optimal ring (evolvable ring-distance
-  gene) rather than the fixed `OPTIMAL_DISTANCE`.
+- [x] ~~Let organisms track the seasonal optimal ring.~~ Superseded:
+  foragers (and brain controllers) follow the actual light, including
+  seasonal shifts.
 - [x] Speciation (opt-in, `Rules.speciation()` / `--env speciation`): marker
   gene for kin, sexual reproduction with assortative mating, species
   clustering, and marker/species report panels.
@@ -132,6 +136,6 @@ That profile suits neither the GPU nor a transfer-per-tick setup, and the
 sequential semantics would need reworking into parallel conflict resolution.
 The order of wins is:
 
-1. a better algorithm (cell-based shading)
+1. a better algorithm (done for shading: a direct beam test, 3–4× faster)
 2. NumPy vectorisation
 3. GPU (e.g. PyTorch MPS on the Mac), and only for much larger worlds
