@@ -581,8 +581,19 @@ Clumping costs absorbers light, because cell-mates split it. Its benefit is
      `repro_energy`, and a `lifespan` draw.
    - The parent pays `repro_energy`, and its `children` count goes up.
 
-An organism dies when its energy reaches ≤ 0, it hits `max_age` (`lifespan`,
-150–450), or it is eaten.
+An organism dies when its energy reaches ≤ 0, it hits `max_age`, or it is
+eaten. `max_age` is drawn from `lifespan` (150–450) scaled by the strategy's
+`lifespan_factors`, so absorbers live longest, then predators, then
+parasites.
+
+**Lifespan by strategy** (12 seeds × 3000 ticks):
+
+- **(1.1, 0.6, 0.9)** meets the stable-coexistence target both in the
+  default world and in `dynamic+open`.
+- **(1.3, 0.6, 1.0):** long-lived absorbers pushed `dynamic+open` to the
+  population cap on 5 of 12 seeds.
+- **(1.15, 0.7, 1.0)** was more volatile: one seed crashed and four hit the
+  cap.
 
 ### Balance rules (`Rules`)
 
@@ -632,6 +643,7 @@ dynamic, open and brain.
 | `child_share` | 0.9 | child's energy as a fraction of `repro_energy`; None = a fresh random 3–7 (original rule) |
 | `repro_chance` | 0.05 | per-tick breeding chance once over `repro_energy` (sets `world.repro_chance`) |
 | `lifespan` | (150, 450) | `(min, max)` range for `max_age`; None = 800–2400 (original rule) |
+| `lifespan_factors` | (1.1, 0.6, 0.9) | per-strategy multiplier on `lifespan` (absorber, parasite, predator), from the strategy at birth: absorbers about 165–495 ticks, predators about 135–405, parasites 90–270 |
 
 **Life-cycle tuning.** The generation time is set by the average age of
 parents, not by energy or breeding chance. Under the original rules (lifespan

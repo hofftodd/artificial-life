@@ -18,6 +18,8 @@ heritable genes, plus an optional 23-weight movement controller. They cover:
 - dispersal, roaming and wariness
 
 Short lives and quick breeding give about 130 generations per 10,000 ticks.
+Lifespan depends on strategy: absorbers live longest, predators next, and
+parasites are short-lived.
 
 **The default model:**
 
@@ -134,7 +136,7 @@ w = World(900, 600, seed=42, rules=preset_rules("dynamic", "open", "brain", num_
 python3 -m unittest
 ```
 
-There are 189 fast tests (unit, integration, functional, and a headless
+There are 191 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 

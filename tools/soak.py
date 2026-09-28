@@ -94,7 +94,7 @@ def parse_rules(pairs, base=None):
         if fields[key] is bool:
             overrides[key] = value.lower() in ("1", "true", "yes", "on")
         elif fields[key] is tuple:
-            overrides[key] = tuple(int(v) for v in value.split(","))
+            overrides[key] = tuple(float(v) if "." in v else int(v) for v in value.split(","))
         else:
             overrides[key] = fields[key](value)
     return dataclasses.replace(base if base is not None else Rules(), **overrides)

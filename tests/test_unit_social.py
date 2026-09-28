@@ -275,11 +275,34 @@ class TestLifeCycleRules(unittest.TestCase):
         self.assertAlmostEqual(w.organisms[1].energy, 3.0)
 
     def test_lifespan_range_applies_to_founders_and_children(self):
-        rules = Rules(lifespan=(50, 60), repro_chance=1.0)
+        rules = Rules(lifespan=(50, 60), lifespan_factors=(1, 1, 1), repro_chance=1.0)
         w = World(600, 400, seed=4, start_population=20, rules=rules)
         self.assertTrue(all(50 <= o.max_age <= 60 for o in w.organisms))
         w, _ = self._breeder(rules)
         self.assertTrue(50 <= w.organisms[1].max_age <= 60)
+
+    def test_lifespan_scales_by_strategy(self):
+        rules = Rules(lifespan=(100, 200))
+        rng = make_rng(8)
+        ranges = {}
+        for strategy, factor in zip(("absorber", "parasite", "predator"), rules.lifespan_factors):
+            ages = [rules.draw_max_age(strategy, rng) for _ in range(300)]
+            self.assertGreaterEqual(min(ages), round(100 * factor))
+            self.assertLessEqual(max(ages), round(200 * factor))
+            ranges[strategy] = sum(ages) / len(ages)
+        # absorbers live longest, then predators, then parasites
+        self.assertGreater(ranges["absorber"], ranges["predator"])
+        self.assertGreater(ranges["predator"], ranges["parasite"])
+        w = World(900, 600, seed=6, start_population=60,
+                  strategy_mix={"absorber": 1, "parasite": 1, "predator": 1})
+        for o in w.organisms:
+            f = w.rules.lifespan_factors[("absorber", "parasite", "predator").index(o.strategy)]
+            self.assertTrue(round(w.rules.lifespan[0] * f) <= o.max_age <= round(w.rules.lifespan[1] * f))
+
+    def test_lifespan_factors_validated(self):
+        for bad in ((1.0, 1.0), (1.0, 0.0, 1.0)):
+            with self.assertRaises(ValueError):
+                Rules(lifespan_factors=bad)
 
     def test_repro_chance_comes_from_rules(self):
         self.assertEqual(World(300, 200, seed=1, rules=Rules(repro_chance=0.2)).repro_chance, 0.2)

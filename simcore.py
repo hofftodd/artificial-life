@@ -25,6 +25,11 @@ REPRO_ENERGY = 3.0
 REPRO_CHANCE = 0.05
 CHILD_SHARE = 0.9            # child's energy as a fraction of REPRO_ENERGY
 LIFESPAN = (150, 450)        # max_age range
+# lifespan multiplier per strategy, in STRATEGIES order (absorber, parasite,
+# predator): absorbers live longest, predators next, parasites briefly.
+# (1.3, 0.6, 1.0) let absorbers pile up to the population cap in the open
+# world; these meet the balance target on 12 seeds, static and dynamic+open
+LIFESPAN_FACTORS = (1.1, 0.6, 0.9)
 ENERGY_CAP = 12.0
 
 # --- populations ---
@@ -210,6 +215,9 @@ class Rules:
     # Generation time tracks the mean age of parents, so shorter lives are the
     # main lever for more generations per tick.
     lifespan: tuple = LIFESPAN
+    # per-strategy multipliers on lifespan (absorber, parasite, predator),
+    # applied to the strategy at birth
+    lifespan_factors: tuple = LIFESPAN_FACTORS
     # grazing: harvesting lowers a cell's light reserve (by depletion_rate x
     # energy harvested), which regrows toward full at regrowth_rate per tick.
     # 0 = light never runs out.
@@ -276,6 +284,12 @@ class Rules:
     cover_range: float = COVER_RANGE
     hidden_detect: float = HIDDEN_DETECT
 
+    def draw_max_age(self, strategy, rng):
+        """A max_age from lifespan scaled by the strategy's factor."""
+        f = self.lifespan_factors[STRATEGIES.index(strategy)]
+        lo, hi = self.lifespan
+        return rng.randint(max(1, round(lo * f)), max(1, round(hi * f)))
+
     @classmethod
     def brain(cls, **overrides):
         """Movement decided by each organism's evolved controller."""
@@ -320,6 +334,10 @@ class Rules:
             lo, hi = self.lifespan
             if not 0 < lo <= hi:
                 raise ValueError("lifespan must be (min, max) with 0 < min <= max")
+        if len(self.lifespan_factors) != len(STRATEGIES) or \
+                any(f <= 0 for f in self.lifespan_factors):
+            raise ValueError("lifespan_factors needs %d positive values (%s)"
+                             % (len(STRATEGIES), ", ".join(STRATEGIES)))
         if not 0 <= self.roam_rate <= 1 or self.host_min_energy < 0:
             raise ValueError("need 0 <= roam_rate <= 1 and host_min_energy >= 0")
         if self.ambient_light < 0 or self.tail_strength < 0 or self.dispersal_max < 0:
@@ -1334,7 +1352,7 @@ class Organism:
             world.organisms.append(child)
             self.children += 1
             if world.rules.lifespan is not None:
-                child.max_age = world.rng.randint(*world.rules.lifespan)
+                child.max_age = world.rules.draw_max_age(child.strategy, world.rng)
             if world.rules.child_share is not None:
                 child.energy = cost * world.rules.child_share
             if world.lineage is not None:
@@ -1463,7 +1481,7 @@ class World:
         self.field = self._build_field()
         if self.rules.lifespan is not None:
             for o in self.organisms:
-                o.max_age = self.rng.randint(*self.rules.lifespan)
+                o.max_age = self.rules.draw_max_age(o.strategy, self.rng)
         self.lineage = [] if record_lineage else None
         if record_lineage:
             for o in self.organisms:
