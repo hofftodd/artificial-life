@@ -87,6 +87,11 @@
   seeds). Carcasses and tails currently overfeed hunters; consider a
   scavenger strategy or a predator cost for open-ground hunting.
 - [x] UI: stats, legend and inspector in a side pane; the world view is clear.
+- [x] Ranging: roaming and wariness genes, patrols, parasites moving on,
+  fleeing; part of the open world preset.
+- [ ] **Evolved controller** (next): replace the fixed movement decision order
+  with a heritable controller (weighted inputs → heading and speed), so
+  chasing, fleeing, roaming and basking evolve instead of being rules.
 - [x] Arms race: armour vs bite and camouflage vs perception, each with
   costs, on by default (`Rules.arms_race`), with an "Arms race" report
   section.

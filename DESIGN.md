@@ -196,7 +196,7 @@ There are four mechanisms, all off in `Rules()`:
 
 **`Rules.open_world()`** (`--env open`, and the GUI's "Open world" toggle,
 which is on by default there) sets `ambient_light=0.02` and
-`dispersal_max=150`.
+`dispersal_max=150`, plus the ranging rules below.
 
 **Measurements** (6 seeds × 5000 ticks):
 
@@ -220,6 +220,73 @@ which is on by default there) sets `ambient_light=0.02` and
 - **What it looks like:** colonies settle in the open. Since ambient light
   suits every spectrum, they evolve spectra unlike the emitter populations',
   and predators follow them out.
+
+## Ranging behaviour
+
+**Why:** with the open world on, absorbers still barely moved: the median
+distance travelled was 7px per 100 ticks, and parasites 7px. Foragers stop
+once no nearby spot is better, and in even ambient light nothing ever is.
+Parasites stayed latched to one host, and predators without a victim went
+back to basking at an emitter.
+
+| Rule | Gene | Mechanic |
+|---|---|---|
+| `roam_rate` | `roaming` | Per-tick chance (`roam_rate × roaming`, tripled on a poor spot where share × reserve < 0.5) of starting a straight travel leg of 40–120 ticks. Legs bounce off edges, and a victim sighting ends one. |
+| `patrol` | – | Hunters with no victim in sight search on legs, roughly holding their heading, instead of basking. They do this only while energy > `PATROL_MIN_ENERGY` (2), so hunger still sends them back to the light. |
+| `host_min_energy` | – | Parasites only chase and drain hosts richer than this, and pick the richest in reach, so they leave drained hosts. |
+| `flee` | `wariness` | Non-predators pull away from the nearest sensed predator (`FLEE_GAIN × wariness`). Wariness costs `SENSE_COST × wariness` per tick. |
+
+**The open world preset now includes these:** `roam_rate` 0.02, patrol,
+`host_min_energy` 2 and flee. Wider-ranging hunters find far more prey and
+overexploit it; with patrols alone, 2 of 6 seeds went extinct. So the preset
+also makes each kill costlier: `hunt_cooldown` 24 and `strategy_cost` 0.02.
+
+Result under `dynamic+open` (6 seeds × 5000 ticks, final third):
+
+| | Absorbers | Parasites | Predators |
+|---|---|---|---|
+| Time beyond the discs | 33–76% | 6–23% | 19–45% |
+| Travel per 100 ticks | 9–19px | 14–24px | 29–54px |
+
+Without the ranging rules it was 4–53% / 0–14% / 1–34% beyond the discs,
+with travel of about 6 / 8 / 20px.
+
+**Validation, 12 seeds × 3000 ticks under `dynamic+open` (the GUI default):**
+
+- the full stable-coexistence target is met
+- time beyond the discs: absorbers 21–70%, parasites 4–21%, predators 4–40%
+- travel per 100 ticks: 10–26px, 8–26px and 20–59px
+
+**Use it with seasons.** Without them (`--env open`), the preset is fragile:
+on 6 seeds, one went extinct and one fell to 29.
+
+### What is inherited and what is a rule
+
+Evolution tunes the knobs; hand-written rules write the program.
+
+- **Heritable (18 genes):**
+  - absorption spectrum and the three strategy shares
+  - movement ability, radiation sensing, organism sensing
+  - kin affinity, offspring protection, cover affinity
+  - armour, bite, camouflage, perception
+  - marker
+  - dispersal, roaming, wariness
+- **Fixed rules (the same for every organism):**
+  - the movement decision order: chase → carcass → travel leg → forage /
+    seek an emitter, plus kin, cover and flee pulls
+  - behaviour chosen by dominant strategy (a category, not a blend)
+  - who may eat or rob whom
+  - the life cycle (breeding threshold and chance, lifespan, child energy)
+  - the ranging triggers (leg length, patrol energy threshold, poor-spot
+    multiplier)
+  - mate choice and crossover
+
+In a ranging run (3 seeds, 4000 ticks), dispersal rose the most
+(0.15 → 0.30–0.69), which is selection spreading offspring out. Cover
+affinity, armour and the hunting shares also rose, and radiation sensing fell
+(1.3 → 0.7–0.9). Roaming and wariness rose only mildly. The next step toward
+evolved behaviour is a heritable controller that replaces the fixed decision
+order (TODO).
 
 ## Speciation (opt-in)
 
@@ -337,6 +404,8 @@ Strategy decides:
 | armor, bite, camouflage, perception | 0..0.3 | 0.05 | 0..1 | arms race pairs (see Arms race) |
 | marker | 1..100 | 1.5 | 1..100 | neutral tag for kin and mate choice (see Speciation) |
 | dispersal | 0..0.3 | 0.05 | 0..1 | how far children are born (× `dispersal_max`) |
+| roaming | 0..0.3 | 0.05 | 0..1 | chance of setting off on travel legs (× `roam_rate`) |
+| wariness | 0..0.3 | 0.05 | 0..1 | how hard it flees predators (with `flee`) |
 
 ## Families
 
@@ -420,6 +489,7 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `dispersal_max` | 0.0 | extra birth distance at dispersal 1 (open world uses 150) |
 | `tail_strength`, `tail_range` | 0.0, 240 | dim wide emitter cone |
 | `carcass_fraction`, `carcass_decay`, `scavenge_bite` | 0.0, 0.01, 0.5 | carcasses and scavenging |
+| `roam_rate`, `patrol`, `host_min_energy`, `flee` | 0.0, False, 0.0, False | ranging behaviour (see Ranging behaviour; on in the open world preset) |
 | `kin_by` | `"family"` | kin = same founder, or `"marker"` = similar marker |
 | `sex_rate` | 0.0 | chance a birth is sexual (needs a nearby compatible mate) |
 | `mate_tolerance` | 6.0 | largest marker difference a mate may have |
@@ -572,6 +642,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_ranging.py` | travel legs and edge bounces, patrols (fed vs hungry, ended by a sighting), parasites moving on, fleeing and its cost |
 | Unit | `test_unit_spread.py` | ambient harvest, tails, dispersal distances, carcasses (leaving, decay, scavenging, seeking, energy conservation), open-world preset |
 | Unit | `test_unit_speciation.py` | marker kin, crossover, assortative mating, asexual fallback, lineage mate field, species clusters, presets |
 | Unit | `test_unit_arms.py` | kill chance vs bite − armour (statistical), camouflage and perception reach, costs, mutation bounds |

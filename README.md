@@ -99,7 +99,7 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 172 fast tests (unit, integration, functional, and a headless
+There are 181 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
@@ -141,7 +141,9 @@ open runs/seed42.html
   it exactly.
 - **Change the rules:** `--mix` and `--set` work as in `tools/soak.py`.
 - **Open world:** `--env open` adds weak ambient light everywhere and a
-  dispersal gene, so colonies can live between the emitters. Presets combine
+  dispersal gene, so colonies can live between the emitters. It also adds
+  ranging behaviour: travel legs (roaming gene), hunter patrols, parasites
+  that move between hosts, and prey that flee predators (wariness gene). Presets combine
   with `+`, e.g. `--env dynamic+open+speciation`.
 - **Speciation:** `--env speciation` switches kin to a drifting marker gene
   and adds sexual reproduction with assortative mating. The report then shows

@@ -47,8 +47,12 @@ DYNAMIC_PRESET = dict(pulse_period=1500, pulse_depth=0.3, spectrum_drift=0.05,
                       emitter_drift=0.1, num_rocks=8)
 SPECIATION_PRESET = dict(kin_by="marker", sex_rate=0.5, mate_tolerance=6.0)
 # ambient light makes the space between emitters habitable; dispersal lets
-# lineages spread into it (see DESIGN.md, Spreading out)
-OPEN_PRESET = dict(ambient_light=0.02, dispersal_max=150.0)
+# lineages spread into it; roaming, patrols, parasites moving on and fleeing
+# make every strategy range over it. Wider-ranging hunters find more prey, so
+# hunting is made costlier per kill (cooldown 24, upkeep 0.02) to keep them
+# from overexploiting it (see DESIGN.md, Spreading out / Ranging)
+OPEN_PRESET = dict(ambient_light=0.02, dispersal_max=150.0, roam_rate=0.02, patrol=True,
+                   host_min_energy=2.0, flee=True, hunt_cooldown=24, strategy_cost=0.02)
 
 # --- strategy trade-offs ---
 ABSORB_MAX = 2.0            # absorption_efficiency of a pure absorber

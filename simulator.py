@@ -409,6 +409,8 @@ def draw_inspector(screen, fonts, world, o, x, y):
     line("sensing: radiation %.1f   organisms %.1f" % (g.radiation_sensing, g.organism_sensing))
     line("kin affinity %.2f   spares young %d ticks" % (g.kin_affinity, g.offspring_protection))
     line("cover affinity %.2f   dispersal %.2f" % (g.cover_affinity, g.dispersal))
+    line("roaming %.2f   wariness %.2f%s" % (g.roaming, g.wariness,
+                                             "   (travelling)" if o.leg else ""))
     line("armour %.2f  bite %.2f  camo %.2f  percep %.2f" % (
         g.armor, g.bite, g.camouflage, g.perception))
     line("marker %.1f%s" % (g.marker, "   (sexual birth)" if o.mate_uid else ""))
