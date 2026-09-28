@@ -35,6 +35,8 @@ A setup dialog opens first. In it you choose:
 - the number of rocks, whether seasons and emitter drift are on, and whether
   the world is "open" (weak light everywhere plus long-range dispersal, so
   life spreads beyond the emitters). Both are on by default in the GUI.
+- whether behaviour is evolved (each organism steers by its own heritable
+  controller) instead of rule-driven. It's off by default.
 
 Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 
@@ -99,7 +101,7 @@ predator-free world stays predator-free.
 python3 -m unittest
 ```
 
-There are 181 fast tests (unit, integration, functional, and a headless
+There are 189 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
@@ -145,6 +147,11 @@ open runs/seed42.html
   ranging behaviour: travel legs (roaming gene), hunter patrols, parasites
   that move between hosts, and prey that flee predators (wariness gene). Presets combine
   with `+`, e.g. `--env dynamic+open+speciation`.
+- **Evolved behaviour:** `--env brain` (or the GUI toggle) makes movement
+  come from each organism's heritable controller, which weighs light, prey,
+  predators, relatives, rocks, carcasses, momentum and noise, and adjusts with
+  hunger. The report's "Evolved behaviour" section shows how those weights
+  change. Try `--env dynamic+open+brain`.
 - **Speciation:** `--env speciation` switches kin to a drifting marker gene
   and adds sexual reproduction with assortative mating. The report then shows
   a marker heatmap and a species count. Combine it with a changing world using

@@ -111,6 +111,12 @@ header > div:first-child { min-width: 0; }
   <p class="note">How many generations separate living organisms from the founders. Evolution needs many of these.</p>
   <div class="grid" id="generations"></div>
 
+  <div id="brainSection" hidden>
+    <h2>Evolved behaviour</h2>
+    <p class="note">Mean steering weight per input (at half hunger) among each strategy's controllers. Positive = move toward, negative = move away. Founders start from the rule-driven behaviour; drift away from it is evolution rewriting behaviour.</p>
+    <div class="grid" id="brain"></div>
+  </div>
+
   <div id="armsSection" hidden>
     <h2>Arms race</h2>
     <p class="note">Prey defences (mean among absorbers) against hunter weapons (mean among predators). Coevolution shows as the pairs rising together.</p>
@@ -319,6 +325,23 @@ lineChart(document.getElementById("generations"), {
   series: [{name: "Median", color: "--series-1", values: DATA.generation.median},
            {name: "Max", color: "--series-2", values: DATA.generation.max}],
 });
+
+// ---------- evolved behaviour ----------
+if (DATA.brain) {
+  document.getElementById("brainSection").hidden = false;
+  const B = document.getElementById("brain");
+  const shown = [["light", "Light", "--series-1"], ["prey", "Prey / host", "--series-2"],
+                 ["threat", "Predators", "--series-3"], ["momentum", "Momentum", "--series-4"],
+                 ["kin", "Kin", "--series-5"]];
+  [["absorber", "Absorbers"], ["parasite", "Parasites"], ["predator", "Predators"]].forEach(([s, title]) => {
+    lineChart(B, {title: `${title}: steering weights`, legend: true, height: 170,
+      series: shown.map(([k, name, color]) => ({name, color, values: DATA.brain[s][k]}))});
+  });
+  lineChart(B, {title: "Throttle (speed fraction)", legend: true, yMin: 0, height: 170,
+    series: [["absorber", "Absorbers", "--series-1"], ["parasite", "Parasites", "--series-2"],
+             ["predator", "Predators", "--series-3"]].map(([s, name, color]) =>
+      ({name, color, values: DATA.brain[s].throttle}))});
+}
 
 // ---------- arms race ----------
 if (M.rules.arms_race) {

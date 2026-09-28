@@ -284,9 +284,82 @@ Evolution tunes the knobs; hand-written rules write the program.
 In a ranging run (3 seeds, 4000 ticks), dispersal rose the most
 (0.15 → 0.30–0.69), which is selection spreading offspring out. Cover
 affinity, armour and the hunting shares also rose, and radiation sensing fell
-(1.3 → 0.7–0.9). Roaming and wariness rose only mildly. The next step toward
-evolved behaviour is a heritable controller that replaces the fixed decision
-order (TODO).
+(1.3 → 0.7–0.9). Roaming and wariness rose only mildly. The evolved controller
+(next section) replaces the fixed movement decision order with 23 heritable
+weights, so in brain mode how an organism steers is inherited. Who may eat or
+rob whom, strategy classification and the life cycle remain rules.
+
+## Evolved controller (opt-in, `movement="brain"`)
+
+`Rules.brain()`, `--env brain` and the GUI's "Evolved behaviour" toggle
+replace the fixed movement decision order with a heritable controller.
+
+- **Genome:** `Gene.brain` holds `BRAIN_SIZE` = 23 weights, clamped to ±3,
+  with mutation σ 0.1 per weight. It crosses over per weight and is appended
+  flat to `as_tuple()`; `Gene.from_tuple` inverts that.
+- **Inputs** (`BRAIN_INPUTS`): best light nearby, nearest emitter,
+  prey/host (through the usual victim filter, so camouflage, cover and host
+  floors still apply), nearest predator, nearest relative, nearest stranger,
+  nearest rock, nearest carcass, current heading, and random noise.
+- **Steering:** heading = Σ (`base_i + hunger_i × hunger`) × unit vector,
+  where `hunger = 1 − energy / ENERGY_CAP`.
+- **Throttle:** speed fraction = `sigmoid(t0 + t1·hunger + t2·local light)`.
+  Motion cost is charged on the speed actually moved, so sitting still can
+  pay.
+- **Founders:** `Gene.random` seeds the dominant strategy's rule-like weights
+  (`BRAIN_SEEDS`) plus N(0, 0.2) noise. Genomes without a brain use the
+  noise-free seed (`default_brain`).
+- **Still fixed rules:** who may eat or rob whom, strategy classification,
+  shading, and the life cycle.
+- **Ignored in brain mode:** the rule-driven pulls and triggers (kin, cover,
+  flee, legs, patrol). The `kin_affinity`, `cover_affinity`, `roaming` and
+  `wariness` genes drift neutrally.
+
+**Balance.**
+
+- With the open world's ambient light (0.02), controllers spread absorbers
+  evenly over the whole map and populations hit the 600 cap on 5 of 6 seeds.
+  Stronger grazing (0.05) didn't fix that.
+- `preset_rules(..., "open", "brain")` therefore uses ambient 0.015
+  (`OPEN_BRAIN_AMBIENT`). That meets the stable-coexistence target on 6 seeds
+  under `dynamic+open+brain`. Absorbers then spend 10–37% of their time beyond
+  the discs, and hunters 0–9%, because hunters aren't seeded to roam; whether
+  they learn to is up to selection.
+- **Cost:** a brain-mode step costs about 1.5× rules mode per organism (more
+  neighbour queries).
+
+The report's "Evolved behaviour" section plots each strategy's mean
+steering weights and throttle over time.
+
+**What evolves** (3 seeds × 3000 ticks, `dynamic+open+brain`):
+
+- **Absorbers keep fleeing:** their threat weight stays −0.8 to −1.1 on 3/3
+  seeds.
+- **Everyone leans harder on light**, and absorbers, and on some seeds all
+  strategies, learn to avoid carcasses.
+- **Predators do not keep chasing:** their prey weight drifted to −0.3 and
+  −0.1 on 2 of 3 seeds, and they steer by light instead. The likely reason is
+  that a genome has one controller, and most predators are recent converts
+  from absorber lineages whose shares crossed the strategy boundary. They
+  arrive with absorber-like controllers, and predator lineages don't persist
+  long enough for chasing to be re-selected.
+- **Next step:** strategy-specific controllers (one per strategy, expressing
+  the current one), so hunting weights are inherited even through absorber
+  lineages (TODO).
+
+**Long run** (seed 42, 20k ticks, 153 generations; the report is
+`runs/brain-demo.html`):
+
+- **Absorbers:** they learned to **avoid relatives** (kin weight
+  +0.2 → about −1.5, since relatives compete for the same light). They also
+  lean harder on light (1.0 → about 1.4), keep fleeing (about −1), and gained
+  momentum (+0.2 → about 0.8), so they travel further.
+- **Parasites:** they sharpened host-seeking (to about 2) alongside strong
+  fleeing.
+- **Predators:** their weights stayed noisy around zero.
+- **Population:** unlike the 3000-tick soak, it sat at the 600 cap for most
+  of the run, as evolved controllers harvest more efficiently. Brain mode
+  needs a carrying-capacity rethink before it could become the default.
 
 ## Speciation (opt-in)
 
@@ -490,6 +563,7 @@ The hunting knobs live in the `Rules` dataclass, one per world
 | `tail_strength`, `tail_range` | 0.0, 240 | dim wide emitter cone |
 | `carcass_fraction`, `carcass_decay`, `scavenge_bite` | 0.0, 0.01, 0.5 | carcasses and scavenging |
 | `roam_rate`, `patrol`, `host_min_energy`, `flee` | 0.0, False, 0.0, False | ranging behaviour (see Ranging behaviour; on in the open world preset) |
+| `movement` | `"forage"` | `"forage"`, `"ring"` (original) or `"brain"` (evolved controller) |
 | `kin_by` | `"family"` | kin = same founder, or `"marker"` = similar marker |
 | `sex_rate` | 0.0 | chance a birth is sexual (needs a nearby compatible mate) |
 | `mate_tolerance` | 6.0 | largest marker difference a mate may have |
@@ -642,6 +716,7 @@ that depth, evolution shows up in the report:
 | Unit | `test_unit_gene.py` | strategy budget, movement trade-off, mutation bounds, classification |
 | Unit | `test_unit_social.py` | light competition, parasite rule, offspring protection, communalism, founder mix, events |
 | Unit | `test_unit_shading.py` | beam geometry and which organisms shade |
+| Unit | `test_unit_brain.py` | steering toward prey and away from threats, momentum, throttle and motion cost, the hunger term, genome round-trip, crossover, mutation bounds, seeding |
 | Unit | `test_unit_ranging.py` | travel legs and edge bounces, patrols (fed vs hungry, ended by a sighting), parasites moving on, fleeing and its cost |
 | Unit | `test_unit_spread.py` | ambient harvest, tails, dispersal distances, carcasses (leaving, decay, scavenging, seeking, energy conservation), open-world preset |
 | Unit | `test_unit_speciation.py` | marker kin, crossover, assortative mating, asexual fallback, lineage mate field, species clusters, presets |

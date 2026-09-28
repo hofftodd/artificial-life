@@ -46,5 +46,26 @@ class TestSoak(unittest.TestCase):
         self.assertTrue(ok, "; ".join(reasons))
 
 
+
+@unittest.skipUnless(os.environ.get("AIL_SLOW") == "1", "set AIL_SLOW=1 to run soak tests")
+class TestBrainSelection(unittest.TestCase):
+    """With evolved controllers, absorbers should keep steering away from
+    predators (selection maintains fleeing). Predators' pull toward prey is
+    NOT reliably maintained: most predators are recent converts carrying an
+    absorber-like controller (see DESIGN.md, Evolved controller)."""
+
+    def test_absorbers_keep_fleeing(self):
+        from simcore import World, brain_weight, default_brain, preset_rules
+        keeps = 0
+        for seed in (1, 42, 99):
+            w = World(900, 600, seed=seed, rules=preset_rules("dynamic", "open", "brain"))
+            for _ in range(3000):
+                w.step()
+            prey = [o.genes.brain or default_brain("absorber")
+                    for o in w.organisms if o.strategy == "absorber"]
+            if prey and statistics.mean(brain_weight(b, "threat", 0.5) for b in prey) < 0:
+                keeps += 1
+        self.assertGreaterEqual(keeps, 2)
+
 if __name__ == "__main__":
     unittest.main()

@@ -51,6 +51,8 @@ SPECIATION_PRESET = dict(kin_by="marker", sex_rate=0.5, mate_tolerance=6.0)
 # make every strategy range over it. Wider-ranging hunters find more prey, so
 # hunting is made costlier per kill (cooldown 24, upkeep 0.02) to keep them
 # from overexploiting it (see DESIGN.md, Spreading out / Ranging)
+GENE_FIELDS = 18                 # Gene fields before the brain weights
+BRAIN_PRESET = dict(movement="brain")
 OPEN_PRESET = dict(ambient_light=0.02, dispersal_max=150.0, roam_rate=0.02, patrol=True,
                    host_min_energy=2.0, flee=True, hunt_cooldown=24, strategy_cost=0.02)
 
@@ -86,6 +88,67 @@ ROAM_POOR = 0.5              # a spot with share x reserve below this is poor
 PATROL_MIN_ENERGY = 2.0      # hunters only patrol when they can afford to
 FLEE_GAIN = 2.0              # strength of the flee pull at wariness 1
 
+# --- evolved controller (Rules.movement = "brain") ---
+BRAIN_INPUTS = ("light", "emitter", "prey", "threat", "kin", "stranger", "rock", "carcass",
+                "momentum", "noise")
+BRAIN_SIZE = 2 * len(BRAIN_INPUTS) + 3   # (base, hunger) per input + 3 throttle weights
+BRAIN_CLAMP = 3.0
+BRAIN_SIGMA = 0.1            # mutation per weight
+BRAIN_SEED_NOISE = 0.2       # founders: seed weights + N(0, this)
+FORAGE_NORM = 0.05           # a forage score this high counts as full light
+# founders start from today's rule-driven behaviour, written as weights:
+# input -> (base, hunger); "throttle" -> (bias, hunger, local light)
+BRAIN_SEEDS = {
+    "absorber": {"light": (1.0, 0.0), "emitter": (0.3, 0.0), "threat": (-1.0, 0.0),
+                 "kin": (0.2, 0.0), "rock": (0.2, 0.0), "momentum": (0.2, 0.0),
+                 "noise": (0.1, 0.0), "throttle": (1.0, 0.5, -1.0)},
+    "parasite": {"light": (0.4, 0.8), "emitter": (0.2, 0.0), "prey": (1.5, 0.0),
+                 "threat": (-0.5, 0.0), "momentum": (0.6, 0.0), "noise": (0.2, 0.0),
+                 "throttle": (3.0, 0.0, 0.0)},
+    "predator": {"light": (0.3, 1.2), "emitter": (0.2, 0.0), "prey": (2.0, 0.0),
+                 "carcass": (0.8, 0.0), "momentum": (0.8, -0.8), "noise": (0.2, 0.0),
+                 "throttle": (3.0, 0.0, 0.0)},
+}
+
+
+def _brain_from_seed(strategy, rng=None):
+    seed = BRAIN_SEEDS[strategy]
+    jitter = (lambda: rng.gauss(0, BRAIN_SEED_NOISE)) if rng is not None else (lambda: 0.0)
+    w = []
+    for name in BRAIN_INPUTS:
+        base, hunger = seed.get(name, (0.0, 0.0))
+        w.append(base + jitter())
+        w.append(hunger + jitter())
+    w.extend(t + jitter() for t in seed["throttle"])
+    return tuple(clamp(x, -BRAIN_CLAMP, BRAIN_CLAMP) for x in w)
+
+
+def seed_brain(strategy, rng):
+    """A founder's controller: the strategy's seed weights plus noise."""
+    return _brain_from_seed(strategy, rng)
+
+
+_DEFAULT_BRAINS = {}
+
+
+def default_brain(strategy):
+    """The noise-free seed, used when a genome has no controller."""
+    if strategy not in _DEFAULT_BRAINS:
+        _DEFAULT_BRAINS[strategy] = _brain_from_seed(strategy)
+    return _DEFAULT_BRAINS[strategy]
+
+
+def brain_weight(brain, name, hunger):
+    """Effective steering weight of an input at a given hunger (0..1)."""
+    i = 2 * BRAIN_INPUTS.index(name)
+    return brain[i] + brain[i + 1] * hunger
+
+
+def brain_throttle(brain, hunger, light):
+    t = brain[-3] + brain[-2] * hunger + brain[-1] * light
+    return 1.0 / (1.0 + math.exp(-t))
+
+
 # --- speciation ---
 KIN_MARKER_DIST = 4.0        # with kin_by="marker": kin share a marker within this
 MATE_RANGE = 25.0            # how far a parent looks for a mate
@@ -99,7 +162,7 @@ DEPLETION_RATE = 0.03        # reserve lost per unit of energy harvested
 REGROWTH_RATE = 0.01         # fraction of the missing reserve regained per tick
 DEFENSE_CAP = 8              # most relatives that count toward partial defence
 _COMPASS = [(math.cos(k * math.pi / 4), math.sin(k * math.pi / 4)) for k in range(8)]
-MOVEMENTS = ("forage", "ring")
+MOVEMENTS = ("forage", "ring", "brain")
 
 # --- environment (see Rules; all off by default) ---
 ROCK_RADIUS = (12, 30)       # rock radius range, px
@@ -214,6 +277,13 @@ class Rules:
     hidden_detect: float = HIDDEN_DETECT
 
     @classmethod
+    def brain(cls, **overrides):
+        """Movement decided by each organism's evolved controller."""
+        values = dict(BRAIN_PRESET)
+        values.update(overrides)
+        return cls(**values)
+
+    @classmethod
     def open_world(cls, **overrides):
         """Life beyond the emitter discs: ambient light everywhere plus
         heritable long-range dispersal."""
@@ -274,6 +344,28 @@ class Rules:
             raise ValueError("rock_shade must be in [0, 1]")
 
 
+PRESET_VALUES = {"static": {}, "dynamic": DYNAMIC_PRESET, "open": OPEN_PRESET,
+                 "speciation": SPECIATION_PRESET, "brain": BRAIN_PRESET}
+# evolved controllers spread absorbers evenly over ambient light and hit the
+# population cap at the open world's 0.02; 0.015 meets the balance target
+OPEN_BRAIN_AMBIENT = 0.015
+
+
+def preset_rules(*names, **overrides):
+    """Rules for a combination of named presets (static, dynamic, open,
+    speciation, brain), then explicit overrides."""
+    values = {}
+    for name in names:
+        if name not in PRESET_VALUES:
+            raise ValueError("unknown preset %r (choose from %s)"
+                             % (name, ", ".join(PRESET_VALUES)))
+        values.update(PRESET_VALUES[name])
+    if "open" in names and "brain" in names:
+        values["ambient_light"] = OPEN_BRAIN_AMBIENT
+    values.update(overrides)
+    return Rules(**values)
+
+
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
@@ -301,7 +393,7 @@ class Gene:
                  movement_ability, radiation_sensing, organism_sensing,
                  kin_affinity=0.0, offspring_protection=0, cover_affinity=0.0,
                  armor=0.0, bite=0.0, camouflage=0.0, perception=0.0, marker=50.0,
-                 dispersal=0.0, roaming=0.0, wariness=0.0):
+                 dispersal=0.0, roaming=0.0, wariness=0.0, brain=None):
         self.absorption_spectrum = absorption_spectrum
         total = absorption + parasitism + predation
         if total <= 0:
@@ -333,9 +425,18 @@ class Gene:
         self.roaming = roaming
         # how hard it runs from predators it senses (Rules.flee)
         self.wariness = wariness
+        # evolved movement controller: BRAIN_SIZE weights (see BRAIN_INPUTS),
+        # used when Rules.movement == "brain"; None = the strategy's seed
+        self.brain = tuple(brain) if brain else None
 
     @classmethod
     def random(cls, rng):
+        g = cls._random_fields(rng)
+        g.brain = seed_brain(g.strategy(), rng)
+        return g
+
+    @classmethod
+    def _random_fields(cls, rng):
         return cls(
             rng.randint(1, 100),
             rng.uniform(0.0, 1.0),
@@ -369,6 +470,7 @@ class Gene:
         g.absorption = shares["absorber"]
         g.parasitism = shares["parasite"]
         g.predation = shares["predator"]
+        g.brain = seed_brain(strategy, rng)   # reseed for the new strategy
         return g
 
     def mutated(self, rng, strategy_sigma=STRATEGY_MUTATION):
@@ -393,6 +495,8 @@ class Gene:
             clamp(self.dispersal + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.roaming + rng.gauss(0, 0.05), 0.0, 1.0),
             clamp(self.wariness + rng.gauss(0, 0.05), 0.0, 1.0),
+            brain=(tuple(clamp(w + rng.gauss(0, BRAIN_SIGMA), -BRAIN_CLAMP, BRAIN_CLAMP)
+                         for w in self.brain) if self.brain else None),
         )
 
     @classmethod
@@ -401,9 +505,19 @@ class Gene:
         strategy shares, which come together from one parent."""
         ta, tb = a.as_tuple(), b.as_tuple()
         shares = ta[1:4] if rng.random() < 0.5 else tb[1:4]
-        values = [x if rng.random() < 0.5 else y for x, y in zip(ta, tb)]
+        values = [x if rng.random() < 0.5 else y
+                  for x, y in zip(ta[:GENE_FIELDS], tb[:GENE_FIELDS])]
         values[1:4] = shares
-        return cls(*values)
+        if a.brain and b.brain:
+            brain = [x if rng.random() < 0.5 else y for x, y in zip(a.brain, b.brain)]
+        else:
+            brain = a.brain or b.brain
+        return cls(*values, brain=brain)
+
+    @classmethod
+    def from_tuple(cls, values):
+        """Inverse of as_tuple(): gene fields, then any brain weights."""
+        return cls(*values[:GENE_FIELDS], brain=values[GENE_FIELDS:] or None)
 
     @property
     def absorption_efficiency(self):
@@ -449,7 +563,7 @@ class Gene:
             self.dispersal,
             self.roaming,
             self.wariness,
-        )
+        ) + (self.brain or ())
 
 
 def species_clusters(markers, gap=2 * KIN_MARKER_DIST, min_size=3):
@@ -726,6 +840,7 @@ class Organism:
         self.mate_uid = None
         self.leg = 0                 # ticks left on a travel leg
         self.leg_dir = 0.0
+        self.actual_speed = self.genes.speed   # brain mode: what it moved last tick
 
     @property
     def alive(self):
@@ -902,6 +1017,8 @@ class Organism:
                 best_e.y + dy / d * OPTIMAL_DISTANCE)
 
     def _move(self, world):
+        if world.rules.movement == "brain":
+            return self._brain_move(world)
         rules = world.rules
         sense = self.genes.organism_sensing * 40
         hunter = self.strategy in ("predator", "parasite")
@@ -989,6 +1106,90 @@ class Organism:
         if world.rocks:
             x, y = push_out(x, y, world.rocks)
         self.x, self.y = x, y
+
+    def _brain_move(self, world):
+        """Steer by the evolved controller: a hunger-modulated weighted sum
+        of sensed directions, at an evolved throttle."""
+        rules = world.rules
+        g = self.genes
+        brain = g.brain or default_brain(self.strategy)
+        hunger = 1.0 - clamp(self.energy / ENERGY_CAP, 0.0, 1.0)
+        sense = g.organism_sensing * 40
+        x, y = self.x, self.y
+        senses = {}
+
+        def toward(tx, ty):
+            d = math.hypot(tx - x, ty - y)
+            return ((tx - x) / d, (ty - y) / d) if d > 0.5 else None
+
+        t = self._forage_target(world)
+        if t is not None:
+            senses["light"] = toward(*t)
+        t = self._emitter_target(world)
+        if t is not None:
+            senses["emitter"] = toward(*t)
+        if self.strategy in ("predator", "parasite"):
+            reach = sense * DETECT_RANGE[1] if rules.arms_race else sense
+            prey = self._nearest(world.grid, reach, self._victim_filter(world))
+            if prey is not None:
+                senses["prey"] = toward(prey.x, prey.y)
+        # one pass for the nearest predator, relative and stranger
+        near = {"threat": (None, sense), "kin": (None, sense), "stranger": (None, sense)}
+        for o in world.grid.near(x, y, sense):
+            if o is self or o.dead:
+                continue
+            d = math.hypot(o.x - x, o.y - y)
+            if d > sense:
+                continue
+            if o.strategy == "predator" and d < near["threat"][1]:
+                near["threat"] = (o, d)
+            slot = "kin" if self.is_kin(o) else "stranger"
+            if d < near[slot][1]:
+                near[slot] = (o, d)
+        for name, (o, _d) in near.items():
+            if o is not None:
+                senses[name] = toward(o.x, o.y)
+        if world.rocks:
+            rock, gap = None, sense
+            for k in world.rocks:
+                edge = math.hypot(k.x - x, k.y - y) - k.r
+                if edge < gap:
+                    rock, gap = k, edge
+            if rock is not None:
+                senses["rock"] = toward(rock.x, rock.y)
+        if world.carcasses:
+            c = self._nearest_carcass(world, sense)
+            if c is not None:
+                senses["carcass"] = toward(c.x, c.y)
+        senses["momentum"] = (math.cos(self.direction), math.sin(self.direction))
+        a = world.rng.uniform(0.0, 2.0 * math.pi)
+        senses["noise"] = (math.cos(a), math.sin(a))
+
+        hx = hy = 0.0
+        for i, name in enumerate(BRAIN_INPUTS):
+            v = senses.get(name)
+            if v is not None:
+                w = brain[2 * i] + brain[2 * i + 1] * hunger
+                hx += w * v[0]
+                hy += w * v[1]
+        if math.hypot(hx, hy) > 1e-6:
+            self.direction = math.atan2(hy, hx)
+        else:
+            self.direction += world.rng.gauss(0, 0.1)
+
+        own_key = (int(x // FIELD_CELL), int(y // FIELD_CELL))
+        matches = [spectral_match(e.spectrum, g.absorption_spectrum) for e in world.emitters]
+        here = self._forage_score(world, own_key, own_key, matches)
+        light = clamp((here or 0.0) / FORAGE_NORM, 0.0, 1.0)
+        speed = g.speed * brain_throttle(brain, hunger, light)
+        if rules.arms_race:
+            speed *= 1.0 - ARMOR_SLOW * g.armor
+        self.actual_speed = speed
+        nx = clamp(x + math.cos(self.direction) * speed, 5, world.width - 5)
+        ny = clamp(y + math.sin(self.direction) * speed, 5, world.height - 5)
+        if world.rocks:
+            nx, ny = push_out(nx, ny, world.rocks)
+        self.x, self.y = nx, ny
 
     def _start_leg(self, world, hunter):
         """Maybe set off on a straight travel leg; returns whether it did."""
@@ -1183,7 +1384,8 @@ class Organism:
         if world.carcasses:
             self._scavenge(world)
 
-        cost = (MOTION_COST * self.genes.speed
+        moved = self.actual_speed if world.rules.movement == "brain" else self.genes.speed
+        cost = (MOTION_COST * moved
                 + SENSE_COST * (self.genes.radiation_sensing + self.genes.organism_sensing))
         if self.strategy in ("predator", "parasite"):
             cost += world.rules.strategy_cost

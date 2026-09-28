@@ -61,6 +61,7 @@ DEFAULT_SETTINGS = {
     "rocks": simcore.Rules.dynamic().num_rocks,
     "dynamic": 1,
     "open": 1,
+    "brain": 0,
     "organisms": simcore.START_POPULATION,
     "absorber": 80,
     "parasite": 10,
@@ -414,6 +415,14 @@ def draw_inspector(screen, fonts, world, o, x, y):
     line("armour %.2f  bite %.2f  camo %.2f  percep %.2f" % (
         g.armor, g.bite, g.camouflage, g.perception))
     line("marker %.1f%s" % (g.marker, "   (sexual birth)" if o.mate_uid else ""))
+    if world.rules.movement == "brain":
+        brain = g.brain or simcore.default_brain(o.strategy)
+        hunger = 1.0 - clamp(o.energy / ENERGY_CAP, 0.0, 1.0)
+        top = sorted(((simcore.brain_weight(brain, n, hunger), n) for n in simcore.BRAIN_INPUTS),
+                     key=lambda wn: -abs(wn[0]))[:4]
+        parts = ["%s %+.1f" % (n, w) for w, n in top]
+        line("brain: " + "   ".join(parts[:2]))
+        line("       " + "   ".join(parts[2:]))
     line("outlined: relatives   click empty space to close")
 
 
@@ -429,6 +438,7 @@ class SetupDialog:
             ("rocks", "Rocks", 0, 40, 1),
             ("dynamic", "Seasons & drift", 0, 1, 1),
             ("open", "Open world", 0, 1, 1),
+            ("brain", "Evolved behaviour", 0, 1, 1),
             ("organisms", "Starting organisms", 0, 600, 10),
             ("absorber", "Absorbers", 0, 100, 5),
             ("parasite", "Parasites", 0, 100, 5),
@@ -508,7 +518,7 @@ class SetupDialog:
                 pygame.draw.rect(screen, (45, 45, 75), row)
             color = STRATEGY_COLORS.get(key, TEXT)
             value = str(self.values[key])
-            if key in ("dynamic", "open"):
+            if key in ("dynamic", "open", "brain"):
                 value = "on" if self.values[key] else "off"
             if key in STRATEGIES:
                 value = "%d%%" % round(mix[key]) if mix else "-"
@@ -603,7 +613,7 @@ class SimulationApp:
             num_emitters=st["emitters"], start_population=st["organisms"],
             max_population=max(simcore.MAX_POPULATION, int(simcore.MAX_POPULATION * area)),
             strategy_mix=mix,
-            rules=simcore.Rules(**world_rule_values(st)))
+            rules=world_rules(st))
         self.effects.clear()
         self.selected = None
         self.paused = False
@@ -691,15 +701,10 @@ class SimulationApp:
         return frames
 
 
-def world_rule_values(settings):
-    """Rules fields for the setup dialog's environment toggles."""
-    values = {}
-    if settings.get("dynamic"):
-        values.update(simcore.DYNAMIC_PRESET)
-    if settings.get("open"):
-        values.update(simcore.OPEN_PRESET)
-    values["num_rocks"] = settings["rocks"]
-    return values
+def world_rules(settings):
+    """Rules for the setup dialog's environment toggles."""
+    names = [n for n in ("dynamic", "open", "brain") if settings.get(n)]
+    return simcore.preset_rules(*names, num_rocks=settings["rocks"])
 
 
 def window_size(width, height):

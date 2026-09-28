@@ -107,6 +107,7 @@ class TestGuiEndToEnd(unittest.TestCase):
         set_field("rocks", 3)
         set_field("dynamic", 1)
         set_field("open", 1)
+        set_field("brain", 1)
         self.app.draw()
         press(pygame.K_RETURN)
 
@@ -124,11 +125,14 @@ class TestGuiEndToEnd(unittest.TestCase):
         self.assertGreater(w.rules.pulse_depth, 0)
         self.assertGreater(w.rules.ambient_light, 0)
         self.assertGreater(w.rules.dispersal_max, 0)
+        self.assertEqual(w.rules.movement, "brain")
+        self.app.selected = w.organisms[0]
+        self.app.draw()                       # inspector shows the brain line
 
     def test_static_environment_from_dialog(self):
         self.app.open_setup()
         dialog = self.app.dialog
-        dialog.values.update(rocks=0, dynamic=0, open=0)
+        dialog.values.update(rocks=0, dynamic=0, open=0, brain=0)
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
         self.app.handle_events()
         w = self.app.world

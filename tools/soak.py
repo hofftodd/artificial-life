@@ -17,9 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import math  # noqa: E402
 
-from simcore import (DYNAMIC_PRESET, EMITTER_RANGE, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
-                     OPEN_PRESET, OPTIMAL_DISTANCE, SPECIATION_PRESET, STRATEGIES, Rules,
-                     World)
+from simcore import (EMITTER_RANGE, GROUP_RADIUS, MAX_POPULATION,  # noqa: E402
+                     OPTIMAL_DISTANCE, STRATEGIES, Rules, World, preset_rules)
 
 
 def clumping(world, organisms):
@@ -66,21 +65,14 @@ def parse_mix(text):
     return dict(zip(STRATEGIES, weights))
 
 
-PRESETS = {"static": {}, "dynamic": DYNAMIC_PRESET, "open": OPEN_PRESET,
-           "speciation": SPECIATION_PRESET}
 ENV_HELP = ("static (defaults), dynamic (seasons, drift, rocks), open (ambient "
-            "light + dispersal), speciation (marker kin + sex); join with '+', "
-            "e.g. dynamic+open")
+            "light, dispersal, ranging), speciation (marker kin + sex), brain "
+            "(evolved movement controller); join with '+', e.g. dynamic+open+brain")
 
 
 def base_rules(env):
     """Rules for an --env value: preset names joined with '+'."""
-    values = {}
-    for part in env.split("+"):
-        if part not in PRESETS:
-            raise ValueError("unknown env %r (choose from %s)" % (part, ", ".join(PRESETS)))
-        values.update(PRESETS[part])
-    return Rules(**values)
+    return preset_rules(*env.split("+"))
 
 
 def env_arg(text):

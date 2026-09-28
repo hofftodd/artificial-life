@@ -18,7 +18,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from simcore import GROUP_RADIUS, STRATEGIES, World, species_clusters  # noqa: E402
+from simcore import (BRAIN_INPUTS, GROUP_RADIUS, STRATEGIES, World, brain_throttle,  # noqa: E402
+                     brain_weight, default_brain, species_clusters)
 from tools.soak import (ENV_HELP, base_rules, emitter_distance, env_arg, parse_mix,  # noqa: E402
                         parse_rules, ring_offset)
 
@@ -95,6 +96,9 @@ class Sampler:
         self.species = []            # per sample: marker clusters of 3+
         # arms race: each trait's mean within the strategy that uses it
         self.arms = {"armor": [], "bite": [], "camouflage": [], "perception": []}
+        # evolved controller: mean effective weight per strategy and input at
+        # hunger 0.5, and mean throttle at hunger 0.5 / half light
+        self.brain = {s: {n: [] for n in BRAIN_INPUTS + ("throttle",)} for s in STRATEGIES}
 
     def sample(self):
         w = self.world
@@ -137,6 +141,14 @@ class Sampler:
                             ("bite", hunters), ("perception", hunters)):
             self.arms[name].append(statistics.fmean(getattr(o.genes, name) for o in group)
                                    if group else None)
+        if w.rules.movement == "brain":
+            for s in STRATEGIES:
+                group = [o.genes.brain or default_brain(s) for o in orgs if o.strategy == s]
+                for n in BRAIN_INPUTS:
+                    self.brain[s][n].append(statistics.fmean(brain_weight(b, n, 0.5) for b in group)
+                                            if group else None)
+                self.brain[s]["throttle"].append(
+                    statistics.fmean(brain_throttle(b, 0.5, 0.5) for b in group) if group else None)
         for e, rec in zip(w.emitters, self.emitters):
             rec["spectrum"].append(e.spectrum)
             rec["strength"].append(e.strength)
@@ -194,6 +206,7 @@ def build_report_data(world, sampler, args, wall):
         "families": sampler.families(),
         "emitters": sampler.emitters,
         "arms": sampler.arms,
+        "brain": sampler.brain if w.rules.movement == "brain" else None,
         "species": ({"marker_counts": sampler.markers, "count": sampler.species}
                     if w.rules.kin_by == "marker" or w.rules.sex_rate else None),
     })
