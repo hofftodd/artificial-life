@@ -9,7 +9,7 @@ from tests.helpers import (build_field, make_gene, make_organism, make_rng,
 def empty_world():
     # arms_race off: these tests assert certain kills, not armour dice rolls
     return World(600, 400, seed=1, num_emitters=0, start_population=0,
-                 rules=Rules(arms_race=False))
+                 rules=Rules(arms_race=False, movement="forage"))
 
 
 class TestEnergyCompetition(unittest.TestCase):

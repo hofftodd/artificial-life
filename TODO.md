@@ -96,8 +96,13 @@
   chasing (prey weight drifts negative on 2/3 seeds), because converts from
   absorber lineages bring absorber controllers. Carry one controller per
   strategy and express the current one.
-- [ ] Decide whether the evolved controller becomes the default; try
-  from-scratch (random) founders as an experiment.
+- [x] The evolved controller is the default (`--env rules` for the movement
+  rules). Balance holds on 12 seeds (static and dynamic+open, with
+  open-world ambient 0.012).
+- [ ] Evolved controllers range less than the ranging rules (absorbers 4–17%
+  beyond the discs vs 21–70%). Find what would make ranging pay under
+  selection.
+- [ ] Try from-scratch (random) founders as an experiment.
 - [ ] Brain mode's carrying capacity: over 20k ticks, evolved controllers
   harvest well enough to sit at the 600 cap.
 - [x] Arms race: armour vs bite and camouflage vs perception, each with

@@ -23,20 +23,24 @@ parasites are short-lived.
 
 **The default model:**
 
-- Absorbers forage for fresh light, and harvesting drains a patch until it
-  regrows.
-- Predators and parasites hunt them, with the arms race switched on.
+- **Evolved behaviour:** every organism steers by its own heritable
+  controller, which weighs light, prey, predators, relatives, rocks,
+  carcasses, momentum and noise, and adjusts with hunger. Founders start from
+  rule-like weights, and evolution rewrites them.
+- Harvesting drains a patch of light until it regrows.
+- Predators and parasites hunt, with the arms race switched on.
 
-**Presets** add more, and combine with `+` (e.g. `dynamic+open+brain`):
+**Presets** add more, and combine with `+` (e.g. `dynamic+open`):
 
 | Preset | Adds |
 |---|---|
 | **dynamic** | seasons, drifting emitters, and rocks that shade and give cover |
 | **open** | ambient light, dispersal, roaming, patrols and fleeing, so life spreads between the emitters |
 | **speciation** | kin by marker, and sexual reproduction with assortative mating |
-| **brain** | movement from an evolved controller instead of rules |
+| **rules** | hand-written movement rules instead of the evolved controller (foraging, travel legs, patrols, fleeing) |
+| **brain** | the evolved controller, which is already the default |
 
-The GUI turns on dynamic and open by default.
+The GUI turns on dynamic and open by default, with evolved behaviour.
 
 ## Requirements
 
@@ -63,7 +67,7 @@ A setup dialog opens first. In it you choose:
   the world is "open" (weak light everywhere plus long-range dispersal, so
   life spreads beyond the emitters). Both are on by default in the GUI.
 - whether behaviour is evolved (each organism steers by its own heritable
-  controller) instead of rule-driven. It's off by default.
+  controller) or rule-driven. Evolved is on by default.
 
 Use the arrow keys or the +/- buttons, then press **Enter** or click **Start**.
 
@@ -127,7 +131,7 @@ Presets by name, with any rule overrides:
 ```python
 from simcore import World, preset_rules
 
-w = World(900, 600, seed=42, rules=preset_rules("dynamic", "open", "brain", num_rocks=12))
+w = World(900, 600, seed=42, rules=preset_rules("dynamic", "open", num_rocks=12))
 ```
 
 ## Tests
@@ -136,7 +140,7 @@ w = World(900, 600, seed=42, rules=preset_rules("dynamic", "open", "brain", num_
 python3 -m unittest
 ```
 
-There are 191 fast tests (unit, integration, functional, and a headless
+There are 192 fast tests (unit, integration, functional, and a headless
 pygame GUI test), and they take about 45s. The GUI tests use SDL's dummy video
 driver, so they don't need a display.
 
@@ -183,11 +187,11 @@ open runs/seed42.html
   ranging behaviour: travel legs (roaming gene), hunter patrols, parasites
   that move between hosts, and prey that flee predators (wariness gene). Presets combine
   with `+`, e.g. `--env dynamic+open+speciation`.
-- **Evolved behaviour:** `--env brain` (or the GUI toggle) makes movement
-  come from each organism's heritable controller, which weighs light, prey,
-  predators, relatives, rocks, carcasses, momentum and noise, and adjusts with
-  hunger. The report's "Evolved behaviour" section shows how those weights
-  change. Try `--env dynamic+open+brain`.
+- **Evolved behaviour** (the default): the report's "Evolved behaviour"
+  section shows how each strategy's steering weights change. Use `--env rules`
+  (or turn the GUI toggle off) for the hand-written movement rules, e.g.
+  `--env dynamic+open+rules`. Those rules make organisms range much further
+  in the open world.
 - **Speciation:** `--env speciation` switches kin to a drifting marker gene
   and adds sexual reproduction with assortative mating. The report then shows
   a marker heatmap and a species count. Combine it with a changing world using

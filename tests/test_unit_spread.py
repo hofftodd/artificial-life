@@ -8,6 +8,7 @@ from tests.helpers import make_gene, make_organism, make_rng
 
 def empty(**rules):
     rules.setdefault("arms_race", False)
+    rules.setdefault("movement", "forage")      # rule-driven movement and motion cost
     return World(600, 400, seed=4, num_emitters=0, start_population=0, rules=Rules(**rules))
 
 

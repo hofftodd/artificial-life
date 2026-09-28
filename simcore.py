@@ -58,6 +58,7 @@ SPECIATION_PRESET = dict(kin_by="marker", sex_rate=0.5, mate_tolerance=6.0)
 # from overexploiting it (see DESIGN.md, Spreading out / Ranging)
 GENE_FIELDS = 18                 # Gene fields before the brain weights
 BRAIN_PRESET = dict(movement="brain")
+RULES_PRESET = dict(movement="forage")     # rule-driven movement instead
 OPEN_PRESET = dict(ambient_light=0.02, dispersal_max=150.0, roam_rate=0.02, patrol=True,
                    host_min_energy=2.0, flee=True, hunt_cooldown=24, strategy_cost=0.02)
 
@@ -226,7 +227,7 @@ class Rules:
     # "forage": organisms without a victim to chase move to the best nearby
     # spot (light x reserve x crowding) within radiation_sensing x
     # FORAGE_RADIUS; "ring": everyone heads for the optimal ring (original)
-    movement: str = "forage"
+    movement: str = "brain"
     # partial group defence: each relative of the prey within GROUP_RADIUS
     # multiplies a kill's chance of success by (1 - defense_per_kin); 0 = off
     defense_per_kin: float = 0.0
@@ -363,10 +364,11 @@ class Rules:
 
 
 PRESET_VALUES = {"static": {}, "dynamic": DYNAMIC_PRESET, "open": OPEN_PRESET,
-                 "speciation": SPECIATION_PRESET, "brain": BRAIN_PRESET}
+                 "speciation": SPECIATION_PRESET, "brain": BRAIN_PRESET,
+                 "rules": RULES_PRESET}
 # evolved controllers spread absorbers evenly over ambient light and hit the
-# population cap at the open world's 0.02; 0.015 meets the balance target
-OPEN_BRAIN_AMBIENT = 0.015
+# population cap at the open world's 0.02; 0.012 meets the balance target on 12 seeds
+OPEN_BRAIN_AMBIENT = 0.012
 
 
 def preset_rules(*names, **overrides):
@@ -378,7 +380,7 @@ def preset_rules(*names, **overrides):
             raise ValueError("unknown preset %r (choose from %s)"
                              % (name, ", ".join(PRESET_VALUES)))
         values.update(PRESET_VALUES[name])
-    if "open" in names and "brain" in names:
+    if "open" in names and values.get("movement", Rules.movement) == "brain":
         values["ambient_light"] = OPEN_BRAIN_AMBIENT
     values.update(overrides)
     return Rules(**values)

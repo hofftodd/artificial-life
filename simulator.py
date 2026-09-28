@@ -61,7 +61,7 @@ DEFAULT_SETTINGS = {
     "rocks": simcore.Rules.dynamic().num_rocks,
     "dynamic": 1,
     "open": 1,
-    "brain": 0,
+    "brain": 1,
     "organisms": simcore.START_POPULATION,
     "absorber": 80,
     "parasite": 10,
@@ -703,7 +703,8 @@ class SimulationApp:
 
 def world_rules(settings):
     """Rules for the setup dialog's environment toggles."""
-    names = [n for n in ("dynamic", "open", "brain") if settings.get(n)]
+    names = [n for n in ("dynamic", "open") if settings.get(n)]
+    names.append("brain" if settings.get("brain", 1) else "rules")
     return simcore.preset_rules(*names, num_rocks=settings["rocks"])
 
 

@@ -125,6 +125,17 @@ class TestBrainGenome(unittest.TestCase):
         self.assertIsNone(o.genes.brain)
 
 
+
+class TestDefaults(unittest.TestCase):
+    def test_evolved_movement_is_the_default(self):
+        from simcore import OPEN_BRAIN_AMBIENT, preset_rules
+        self.assertEqual(Rules().movement, "brain")
+        self.assertEqual(preset_rules("rules").movement, "forage")
+        # the open world is dimmer under evolved movement, unless overridden
+        self.assertEqual(preset_rules("open").ambient_light, OPEN_BRAIN_AMBIENT)
+        self.assertEqual(preset_rules("open", "rules").ambient_light, 0.02)
+        self.assertEqual(preset_rules("open", ambient_light=0.03).ambient_light, 0.03)
+
 def run_for(w, ticks):
     for _ in range(ticks):
         w.step()

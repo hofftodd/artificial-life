@@ -303,10 +303,11 @@ affinity, armour and the hunting shares also rose, and radiation sensing fell
 weights, so in brain mode how an organism steers is inherited. Who may eat or
 rob whom, strategy classification and the life cycle remain rules.
 
-## Evolved controller (opt-in, `movement="brain"`)
+## Evolved controller (default, `movement="brain"`)
 
-`Rules.brain()`, `--env brain` and the GUI's "Evolved behaviour" toggle
-replace the fixed movement decision order with a heritable controller.
+Movement comes from a heritable controller by default. It replaces the fixed
+decision order, which is still available as `movement="forage"`: the `rules`
+preset, `--env rules`, or the GUI's "Evolved behaviour" toggle turned off.
 
 - **Genome:** `Gene.brain` holds `BRAIN_SIZE` = 23 weights, clamped to ±3,
   with mutation σ 0.1 per weight. It crosses over per weight and is appended
@@ -518,7 +519,9 @@ Clumping costs absorbers light, because cell-mates split it. Its benefit is
      in the lethal zone is taken in full.
    - The harvest is tallied for grazing.
 3. **Move**, by `Rules.movement`:
-   - **`"forage"` (default):**
+   - **`"brain"` (default):** the evolved controller (see Evolved
+     controller).
+   - **`"forage"`** (the `rules` preset):
      - Hunters chase the nearest eligible victim (see `_victim_filter`):
        predators only what they could eat; parasites non-parasites, above
        `host_min_energy` if set. Camouflage, perception and rock cover
@@ -531,7 +534,6 @@ Clumping costs absorbers light, because cell-mates split it. Its benefit is
        optimal ring when nothing sensed is lit.
      - Kin, cover and flee pulls are added to the heading.
    - **`"ring"`:** the original steering toward the optimal ring.
-   - **`"brain"`:** the evolved controller (see Evolved controller).
    - Rocks are solid: the new position is pushed out of any rock, and legs
      bounce off the world's edges.
 4. **Steal:** if `stealing_ability > 0.05`, take
@@ -611,7 +613,12 @@ dynamic, open and brain.
 | `dynamic` (`DYNAMIC_PRESET`) | seasons 1500 ticks at 30%, spectrum drift 0.05, position drift 0.1, 8 rocks |
 | `open` (`OPEN_PRESET`) | ambient 0.02, dispersal 150, roam 0.02, patrol, host floor 2, flee, hunt cooldown 24, strategy cost 0.02 |
 | `speciation` (`SPECIATION_PRESET`) | marker kin, sex rate 0.5, mate tolerance 6 |
-| `brain` (`BRAIN_PRESET`) | `movement="brain"`; with `open`, ambient drops to 0.015 (`OPEN_BRAIN_AMBIENT`) |
+| `brain` (`BRAIN_PRESET`) | `movement="brain"` (already the default) |
+| `rules` (`RULES_PRESET`) | `movement="forage"`: the hand-written movement rules |
+
+Whenever the resulting movement is `"brain"`, `open` uses ambient 0.012
+(`OPEN_BRAIN_AMBIENT`) instead of 0.02. With 0.02, evolved controllers spread
+absorbers over the whole map and hit the population cap.
 
 **Fields:**
 
@@ -632,7 +639,7 @@ dynamic, open and brain.
 | `tail_strength`, `tail_range` | 0.0, 240 | dim wide emitter cone |
 | `carcass_fraction`, `carcass_decay`, `scavenge_bite` | 0.0, 0.01, 0.5 | carcasses and scavenging |
 | `roam_rate`, `patrol`, `host_min_energy`, `flee` | 0.0, False, 0.0, False | ranging behaviour (see Ranging behaviour; on in the open world preset) |
-| `movement` | `"forage"` | `"forage"`, `"ring"` (original) or `"brain"` (evolved controller) |
+| `movement` | `"brain"` | `"brain"` (evolved controller), `"forage"` (movement rules) or `"ring"` (original) |
 | `kin_by` | `"family"` | kin = same founder, or `"marker"` = similar marker |
 | `sex_rate` | 0.0 | chance a birth is sexual (needs a nearby compatible mate) |
 | `mate_tolerance` | 6.0 | largest marker difference a mate may have |
@@ -698,9 +705,8 @@ total energy never rises and the population goes extinct; a test checks this.
   stacked bar; all zero means fully random genomes)
 - world width and height, clamped to the desktop size
 - rocks, "Seasons & drift" on/off (`dynamic`), "Open world" on/off (`open`),
-  and "Evolved behaviour" on/off (`brain`). The first two are on by default,
-  brain is off. `world_rules()` turns the toggles into
-  `preset_rules(...)`.
+  and "Evolved behaviour" on/off (`brain` or `rules`). All three are on by
+  default. `world_rules()` turns the toggles into `preset_rules(...)`.
 
 Rocks are drawn as grey discs. Each emitter's halo dims with its seasonal
 output, and its label shows the output % and current spectrum.
@@ -838,13 +844,23 @@ variation over the last third of the run, plus kills, and checks the
 - mean parasite and predator fractions each 3–15%
 - absorbers at least 60%
 
-**Current status:**
+**Current status** (evolved movement is the default):
 
-- The default world meets the target on 12 seeds, and so does
-  `dynamic+open`, the GUI default.
+- The default world meets the target on 12 seeds. So does `dynamic+open`,
+  the GUI default, with open-world ambient 0.012.
+- The rule-driven `dynamic+open+rules` also meets it on 12 seeds.
 - `open` without seasons is fragile.
-- `dynamic+open+brain` meets it at 3000 ticks, but reaches the population cap
-  over long runs.
+- Brain mode can drift up to the population cap over long runs (20k ticks).
+
+**Ranging trade-off.** Evolved controllers range less than the hand-written
+ranging rules. Under `dynamic+open`:
+
+| | Absorbers beyond 120px | Hunters beyond 120px |
+|---|---|---|
+| Evolved (default) | 4–17% | 0–6% |
+| `rules` | 21–70% | 4–40% |
+
+Selection favours staying on emitter light.
 
 The soak output also reports, per strategy, the time spent beyond the
 emitter discs and the median travel per 100 ticks. Runs of 3000 ticks are

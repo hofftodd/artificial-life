@@ -81,7 +81,8 @@ class TestCover(unittest.TestCase):
 
     def test_cover_affinity_pulls_toward_rocks(self):
         def gap_after(affinity):
-            w = World(600, 400, seed=3, num_emitters=0, start_population=0)
+            w = World(600, 400, seed=3, num_emitters=0, start_population=0,
+                      rules=Rules(movement="forage"))     # cover pull is a movement rule
             w.rocks = [Rock(300, 200, 15)]
             o = make_organism(240, 200, w.rng, make_gene(cover_affinity=affinity,
                                                         organism_sensing=2.0))

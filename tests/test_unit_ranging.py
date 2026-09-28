@@ -8,6 +8,7 @@ from tests.helpers import make_gene, make_organism
 def open_world(**rules):
     rules.setdefault("arms_race", False)
     rules.setdefault("ambient_light", 0.02)
+    rules.setdefault("movement", "forage")      # these test the rule-driven movement
     w = World(900, 600, seed=6, num_emitters=0, start_population=0, rules=Rules(**rules))
     w.repro_chance = 0.0
     return w
