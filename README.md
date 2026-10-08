@@ -1,5 +1,7 @@
 # Artificial Life Simulator
 
+![The simulator after 2,000 ticks (seed 42, default GUI settings): three emitters with colonies of absorbers, parasites and predators, rocks, and the stats and legend pane](docs/screenshot.png)
+
 A small evolutionary sandbox. Organisms carry a genome that splits a single
 strategy budget between three ways of getting energy:
 
