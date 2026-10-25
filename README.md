@@ -47,7 +47,7 @@ The GUI turns on dynamic and open by default, with evolved behaviour.
 ## Requirements
 
 - Python 3 (tested on 3.14)
-- `pygame` 2.6 (only for the GUI; the model in `simcore.py` is pure Python)
+- `pygame` 2.6 (only for the GUI; the model in `simcore/` is pure Python)
 
 ```sh
 pip install -r requirements.txt

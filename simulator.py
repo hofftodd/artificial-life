@@ -1,4 +1,4 @@
-"""Pygame GUI for the artificial life simulator (see simcore.py for the model)."""
+"""Pygame GUI for the artificial life simulator (see the simcore package for the model)."""
 import colorsys
 import math
 import os

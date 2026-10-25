@@ -10,7 +10,7 @@ against each other rather than maximising all of them.
 
 | File | Role |
 |---|---|
-| `simcore.py` | The model. Pure Python, no rendering, deterministic per seed. |
+| `simcore/` | The model, as a package. Pure Python, no rendering, deterministic per seed. Split into `constants`, `utils`, `brain`, `rules`, `gene`, `spatial`, `environment`, `radiation`, `organism`, `world`; `simcore/__init__.py` re-exports the public API. |
 | `simulator.py` | Pygame front-end: setup dialog, rendering, event effects, inspector. |
 | `legacy/` | Earlier self-contained prototypes (`simulator_simple.py`, `simulator_visual.py`, `simulator_text.py`). They don't use `simcore` and are kept for reference only. |
 | `requirements.txt` | `pygame` for the GUI; the model and tools need only the standard library. |
